@@ -1,0 +1,42 @@
+# Secrets / env files — never commit real values
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.pfx
+credentials.json
+secrets.json
+
+# Azure Developer CLI local environment state (may contain env-specific values)
+.azure/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# If scripts are test-run locally to scaffold a sample app inside this repo
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.next/
+dist/
+build/
+
+# Scratch/temp
+tmp/
+temp/
+*.tmp

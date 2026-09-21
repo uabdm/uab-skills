@@ -156,41 +156,67 @@ install_node_from_official_tarball() {
   esac
 
   local base="node-v${NODE_INSTALL_VERSION}-${os_tag}-${arch_tag}"
-  local url="https://nodejs.org/dist/v${NODE_INSTALL_VERSION}/${base}.tar.xz"
   local tmp; tmp="$(mktemp -d)"
+  local sha_tool; sha_tool="$(_sha256_tool)" || true
 
-  note "downloading official Node.js v${NODE_INSTALL_VERSION} ($arch_tag) from nodejs.org..."
-  if ! curl -fsSL -m 60 -o "$tmp/$base.tar.xz" "$url"; then
-    warn "download failed ($url) — nodejs.org may be unreachable from this sandbox (separate from the npm registry check below)"
-    rm -rf "$tmp"
-    return 1
-  fi
+  # .tar.gz first — gzip decompression is built into essentially every tar
+  # implementation with no separate binary needed, unlike .tar.xz, which
+  # needs a standalone `xz` (or liblzma) present. A minimal/stripped-down
+  # sandbox image is far more likely to be missing `xz` than gzip support,
+  # which is exactly what happened here: the download succeeded but
+  # `tar -xJf` failed for want of `xz`. Try .tar.xz only as a fallback, in
+  # case some future image is somehow the opposite (has xz, not gzip).
+  local install_bin=""
+  for fmt in "tar.gz:xzf:z" "tar.xz:xJf:J"; do
+    local ext="${fmt%%:*}"
+    local rest="${fmt#*:}"
+    local tar_flag="${rest%%:*}"
+    local archive="$tmp/$base.$ext"
+    local url="https://nodejs.org/dist/v${NODE_INSTALL_VERSION}/${base}.${ext}"
 
-  local sha_tool
-  if sha_tool="$(_sha256_tool)" && curl -fsSL -m 30 -o "$tmp/SHASUMS256.txt" "https://nodejs.org/dist/v${NODE_INSTALL_VERSION}/SHASUMS256.txt" 2>/dev/null; then
-    local expected actual
-    expected="$(grep " ${base}.tar.xz\$" "$tmp/SHASUMS256.txt" | awk '{print $1}')"
-    actual="$($sha_tool "$tmp/$base.tar.xz" 2>/dev/null | awk '{print $1}')"
-    if [ -n "$expected" ] && [ "$expected" != "$actual" ]; then
-      warn "checksum mismatch for $base.tar.xz (expected $expected, got $actual) — refusing to install"
-      rm -rf "$tmp"
-      return 1
+    note "downloading official Node.js v${NODE_INSTALL_VERSION} ($arch_tag, .$ext) from nodejs.org..."
+    if ! curl -fsSL -m 60 -o "$archive" "$url"; then
+      warn "download failed ($url) — nodejs.org may be unreachable from this sandbox (separate from the npm registry check below)"
+      continue
     fi
-    note "download checksum verified against nodejs.org's published SHASUMS256.txt"
-  else
-    warn "could not verify the download's checksum (no sha tool or SHASUMS256.txt unreachable) — proceeding anyway since the file came over TLS directly from nodejs.org"
-  fi
 
-  local dest_root="/opt/uab-node"
-  if ! mkdir -p "$dest_root" 2>/dev/null; then
-    dest_root="$HOME/.uab-node"
-    mkdir -p "$dest_root" || { warn "could not create an install directory anywhere"; rm -rf "$tmp"; return 1; }
-  fi
-  tar -xJf "$tmp/$base.tar.xz" -C "$dest_root" || { warn "extracting the Node tarball failed"; rm -rf "$tmp"; return 1; }
+    if [ -n "$sha_tool" ] && curl -fsSL -m 30 -o "$tmp/SHASUMS256.txt" "https://nodejs.org/dist/v${NODE_INSTALL_VERSION}/SHASUMS256.txt" 2>/dev/null; then
+      local expected actual
+      expected="$(grep " ${base}.${ext}\$" "$tmp/SHASUMS256.txt" | awk '{print $1}')"
+      actual="$($sha_tool "$archive" 2>/dev/null | awk '{print $1}')"
+      if [ -n "$expected" ] && [ "$expected" != "$actual" ]; then
+        warn "checksum mismatch for $base.$ext (expected $expected, got $actual) — refusing to install"
+        rm -f "$archive"
+        continue
+      fi
+      note "download checksum verified against nodejs.org's published SHASUMS256.txt"
+    else
+      warn "could not verify the download's checksum (no sha tool or SHASUMS256.txt unreachable) — proceeding anyway since the file came over TLS directly from nodejs.org"
+    fi
+
+    local dest_root="/opt/uab-node"
+    if ! mkdir -p "$dest_root" 2>/dev/null; then
+      dest_root="$HOME/.uab-node"
+      mkdir -p "$dest_root" || { warn "could not create an install directory anywhere"; rm -rf "$tmp"; return 1; }
+    fi
+    if ! tar "-${tar_flag}" "$archive" -C "$dest_root" 2>/dev/null; then
+      warn "extracting $base.$ext failed (likely missing '$([ "$ext" = tar.gz ] && echo gzip || echo xz)' decompression support in tar) — trying the other archive format"
+      rm -f "$archive"
+      continue
+    fi
+
+    if [ -x "$dest_root/$base/bin/node" ]; then
+      install_bin="$dest_root/$base/bin"
+      break
+    fi
+    warn "extracted $base.$ext but $dest_root/$base/bin/node is missing"
+  done
   rm -rf "$tmp"
 
-  local install_bin="$dest_root/$base/bin"
-  [ -x "$install_bin/node" ] || { warn "extracted archive but $install_bin/node is missing"; return 1; }
+  if [ -z "$install_bin" ]; then
+    warn "could not obtain a working Node.js build in either .tar.gz or .tar.xz form"
+    return 1
+  fi
 
   PATH="$install_bin:$PATH"
   export PATH

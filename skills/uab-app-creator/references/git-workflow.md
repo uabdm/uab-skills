@@ -70,6 +70,20 @@ of these you hit and what to do about each:
   network/platform-config fix, not a Node-install problem, and self-install
   can't do anything about it.
 
+### If a command times out mid-verify (e.g. "command execution timeout" on `npm run build`)
+
+This is the sandbox harness's OWN per-command wall-clock limit killing the
+shell call, not `npm`/`next` reporting a build failure — a cold Next.js
+production build (type-check + lint + compile) commonly takes 1-5 minutes,
+and some sandboxes (confirmed on TrueForge's Daytona-backed sandbox)
+enforce a ceiling well under that. The fix is `scripts/bg-run.sh` /
+`scripts/bg-status.sh` (see `SKILL.md`'s Verify step) — run the slow
+command detached and poll it in small, cheap, separate calls instead of
+one call that has to finish inside the timeout window. Do not: retry the
+same blocking call hoping it's faster this time, run steps "manually" to
+dodge the timeout without backgrounding them, or guess that a build
+probably succeeded because it got partway through before being killed.
+
 If none of `preflight-check.sh`'s own `WARN:`/report lines are visible to
 you — only a paraphrased "Node.js is not installed" summary — that's this
 skill's plain-language persona (see `SKILL.md`) hiding the technical detail

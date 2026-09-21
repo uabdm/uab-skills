@@ -121,6 +121,26 @@ fix, re-run the affected script, repeat until everything passes with zero
 errors. **Never tell the project leader the app is ready before this
 passes.**
 
+If step a2's preflight detected an ephemeral sandbox, OR any single
+command has already timed out once in this session, do NOT call
+`verify-web-app.sh`/`verify-worker-app.sh` (or a slow step like
+`npm run build`) directly as one blocking command — some sandbox harnesses
+(confirmed on TrueForge's Daytona-backed sandbox) enforce a per-command
+wall-clock timeout well under how long a cold Next.js production build can
+legitimately take, which kills the command with a harness-level "command
+execution timeout" that looks nothing like a real build failure. Instead
+run it detached and poll it:
+```
+scripts/bg-run.sh verify bash scripts/verify-web-app.sh
+scripts/bg-status.sh verify   # repeat this every ~10-15s until it prints DONE
+```
+`bg-run.sh` returns almost instantly regardless of how long the wrapped
+command takes; `bg-status.sh` is cheap enough to call repeatedly without
+risking a timeout itself. Do not improvise a different workaround (running
+steps "manually" one at a time, guessing at partial output, assuming it
+probably worked) — that produces exactly the kind of non-deterministic,
+hard-to-reproduce failure this pattern exists to avoid.
+
 **e. Package.** Only after verification passes, run
 `scripts/package-app.sh` from the generated app's folder. It refuses to run
 at all unless `.verify/PASSED` exists and matches the current source — so a
@@ -134,6 +154,17 @@ reports failure because no archiving tool was found on this machine, tell
 the project leader plainly that the app folder itself
 (`references/readme-template.md` explains what's in it) is ready to hand
 off, and that whoever picks it up can zip it themselves.
+
+**Never zip the app folder any other way** — not with a raw `zip`/`tar`/
+`Compress-Archive` command you write yourself, not "just this once" because
+`package-app.sh` hit friction, not because verification is taking too long
+or a command timed out. `scripts/package-app.sh` is the ONLY path that
+enforces the `.verify/PASSED` gate above; a hand-rolled zip command
+produces a file that looks identical to the project leader but has none of
+that gate's guarantees — including, concretely, that `npm audit` actually
+came back clean. If `package-app.sh` itself won't run, that's a problem to
+fix or report (see `references/git-workflow.md`), never a reason to
+route around it.
 
 **f. Report back**, in plain language:
    - What the app does (one sentence).

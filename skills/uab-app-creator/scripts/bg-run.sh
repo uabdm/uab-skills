@@ -11,14 +11,26 @@
 #   scripts/bg-run.sh build npm run build
 #   scripts/bg-run.sh verify bash scripts/verify-web-app.sh
 #
+# Do NOT wrap the trailing command in quotes as a single string — pass it
+# as separate words exactly as you'd type it directly on a command line.
+#   RIGHT: scripts/bg-run.sh build npm run build
+#   WRONG: scripts/bg-run.sh build "npm run build"   (fails with
+#          "npm run build: command not found" — the whole phrase gets
+#          treated as one literal program name instead of three words)
+#
 # State lives under .verify/bg/<label>.{log,pid,exit} — .verify/ is
 # already excluded from git/docker/the handoff zip everywhere else in
 # this skill, so nothing extra is needed to keep this out of those.
 set -uo pipefail
 
-LABEL="${1:?usage: scripts/bg-run.sh <label> <command...>}"
+LABEL="${1:?usage: scripts/bg-run.sh <label> <command...> -- pass the command as separate words, NOT one quoted string (see the header comment above)}"
 shift
 [ "$#" -gt 0 ] || { echo "FAIL: no command given to run" >&2; exit 1; }
+if [ "$#" -eq 1 ] && [[ "$1" == *' '* ]]; then
+  echo "WARN: the command looks like a single quoted string ('$1') containing spaces, not separate words." >&2
+  echo "      This will almost certainly fail with '<the whole string>: command not found'." >&2
+  echo "      Re-run as separate words instead, e.g.: scripts/bg-run.sh $LABEL $1" >&2
+fi
 
 BG_DIR=".verify/bg"
 mkdir -p "$BG_DIR"
@@ -37,10 +49,26 @@ export LOG EXIT_FILE
 # group) would die alongside. setsid survives that; nohup+disown is the
 # fallback where setsid isn't installed (still survives the parent shell
 # simply exiting, just not a hard group-kill).
+#
+# The `>/dev/null 2>&1` on THIS launch line (separate from the `>"$LOG"
+# 2>&1` inside the script string, which redirects the wrapped command's
+# own output) is not optional. Without it, this outer bash -c process
+# inherits stdout/stderr from whatever pipe the calling tool harness is
+# reading — e.g. TrueForge's sandbox exec tool. Many such harnesses treat
+# a command as "finished" only once that pipe reaches EOF, which requires
+# EVERY process holding a copy of that fd to close it, not just the
+# top-level process this script launches. A detached child that still
+# holds an inherited (even unused) copy of that fd keeps the pipe open —
+# and therefore the ORIGINAL tool call blocked — for as long as the
+# detached command itself runs, completely defeating the point of
+# backgrounding it. This is invisible on a fast command (the leaked fd
+# closes within milliseconds when the command finishes) and only bites on
+# a slow one — exactly the "a trivial echo test passes, the real multi-
+# minute npm command still times out" pattern this fixes.
 if command -v setsid >/dev/null 2>&1; then
-  setsid bash -c '"$@" >"$LOG" 2>&1; echo $? > "$EXIT_FILE"' _ "$@" </dev/null &
+  setsid bash -c '"$@" >"$LOG" 2>&1; echo $? > "$EXIT_FILE"' _ "$@" </dev/null >/dev/null 2>&1 &
 else
-  nohup bash -c '"$@" >"$LOG" 2>&1; echo $? > "$EXIT_FILE"' _ "$@" </dev/null &
+  nohup bash -c '"$@" >"$LOG" 2>&1; echo $? > "$EXIT_FILE"' _ "$@" </dev/null >/dev/null 2>&1 &
   disown
 fi
 BG_PID=$!

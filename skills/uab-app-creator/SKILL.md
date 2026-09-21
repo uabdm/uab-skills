@@ -76,6 +76,17 @@ generate everything, then verify.
 (none / Hydra / stubbed), data storage, external integrations, and AI
 usage.
 
+**a2. Preflight the environment.** Before writing a single scaffold file,
+run `scripts/preflight-check.sh web` or `scripts/preflight-check.sh worker`
+(matching the app type from step a). This exists because some sandboxes —
+notably an ephemeral Daytona-style workspace — can boot with Node/npm or
+Python/pip present but not actually usable in the shell commands run in,
+which otherwise only surfaces as a confusing failure deep inside `npm
+install` after everything else has already been generated. If it fails,
+stop here: do not generate anything, and tell the project leader plainly
+per `references/git-workflow.md` — do not attempt to install or fix the
+sandbox yourself.
+
 **b. Emit a generation manifest.** Before writing any scaffold file, list
 every file about to be generated plus every conditional rule that fired
 (auth on/off, login gate on/off, data modules, integrations, sensitivity
@@ -94,17 +105,27 @@ when you reach that step:
    3. `README.md` — `references/readme-template.md`.
 
 **d. Verify.** Run `scripts/verify-web-app.sh` or `scripts/verify-worker-app.sh`
-depending on app type, then work through the judgment checklist in
-`references/verification-checklist.md`. Loop: fix, re-run the affected
-script, repeat until everything passes with zero errors. **Never tell the
-project leader the app is ready before this passes.**
+depending on app type. Each of these also runs `scripts/lint-checklist.sh`
+(the mechanized subset of `references/verification-checklist.md`) and,
+only on a full pass, writes `.verify/PASSED`. Then work through the
+remaining, genuinely judgment-based items in
+`references/verification-checklist.md` — the ones marked "still manual"
+there; do not re-derive what the script already checked by hand. Loop:
+fix, re-run the affected script, repeat until everything passes with zero
+errors. **Never tell the project leader the app is ready before this
+passes.**
 
 **e. Package.** Only after verification passes, run
-`scripts/package-app.sh` from the generated app's folder. It zips up every
-source file — excluding installed dependencies, build output, and any real
-local secrets — into `<app-name>.zip` alongside the project. Read its
-output; if it reports failure because no archiving tool was found on this
-machine, tell the project leader plainly that the app folder itself
+`scripts/package-app.sh` from the generated app's folder. It refuses to run
+at all unless `.verify/PASSED` exists and matches the current source — so a
+fix made after the last passing verify run (however small) blocks
+packaging until the matching verify script is re-run, rather than relying
+on remembering to re-verify. It then zips up every source file — excluding
+installed dependencies, build output, the verification marker, and any
+real local secrets — into `<app-name>.zip` alongside the project, and
+spot-checks the zip's own contents afterward. Read its output; if it
+reports failure because no archiving tool was found on this machine, tell
+the project leader plainly that the app folder itself
 (`references/readme-template.md` explains what's in it) is ready to hand
 off, and that whoever picks it up can zip it themselves.
 

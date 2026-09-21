@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 # Mechanical verification for the Next.js layout: install, build, start the
 # dev server, and confirm both / and /api/health return 200 with a clean
-# log — the equivalent of the old OUTPUT 7 STEPS 1-3. Judgment-based checks
-# (reading the generated code back, confirming auth/data-layer wiring) stay
-# in references/verification-checklist.md — this script only covers what's
-# safe to automate the same way every time.
+# log — the equivalent of the old OUTPUT 7 STEPS 1-3. Also runs
+# lint-checklist.sh (the mechanized subset of verification-checklist.md)
+# and, only if every one of those passes, writes .verify/PASSED — a marker
+# package-app.sh refuses to package without. That marker is what makes
+# "never tell the project leader the app is ready before this passes" an
+# enforced gate instead of a rule the model has to remember and self-report
+# honestly across many separate tool calls. Judgment-based checks that
+# can't be scripted (visual layout, the generation manifest) stay in
+# references/verification-checklist.md.
 #
 # Run from the generated app's repo root. Always stops the dev server
 # before exiting, pass or fail.
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_verify_hash.sh
+source "$SCRIPT_DIR/_verify_hash.sh"
 
 PORT="${PORT:-3000}"
 LOG_FILE="$(mktemp)"
@@ -29,9 +38,7 @@ fail() {
 }
 
 echo "== STEP 1: runtime check =="
-node --version >/dev/null 2>&1 || fail "node not found on this machine — see references/git-workflow.md for what to tell the project leader"
-npm --version  >/dev/null 2>&1 || fail "npm not found on this machine — see references/git-workflow.md for what to tell the project leader"
-echo "node $(node --version), npm $(npm --version)"
+"$SCRIPT_DIR/preflight-check.sh" web || fail "runtime check failed — see the preflight report above and references/git-workflow.md for what to tell the project leader"
 
 echo "== STEP 1: npm install =="
 npm install || fail "npm install failed — see the error above"
@@ -89,3 +96,16 @@ if grep -qiE 'error|unhandled' "$LOG_FILE"; then
 fi
 
 echo "PASS: install, build, and both health checks succeeded"
+
+echo "== STEP 4: mechanical checklist (lint-checklist.sh) =="
+"$SCRIPT_DIR/lint-checklist.sh" web || fail "lint-checklist.sh found problems — fix them, then re-run this script. Packaging is blocked until this passes."
+
+echo "== STEP 5: writing verification marker =="
+mkdir -p .verify
+SOURCE_HASH="$(compute_source_hash)" || fail "could not compute a verification hash — see the error above"
+{
+  echo "app_type=web"
+  echo "hash=$SOURCE_HASH"
+  echo "verified_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > .verify/PASSED
+echo "wrote .verify/PASSED (hash $SOURCE_HASH) — scripts/package-app.sh requires this to match the current source before it will zip"

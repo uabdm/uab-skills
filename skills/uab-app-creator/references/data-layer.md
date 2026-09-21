@@ -73,6 +73,7 @@ node_modules/
 .env*.local
 .data/
 .localstorage/
+.verify/
 ```
 
 Worker (Python):
@@ -82,7 +83,13 @@ __pycache__/
 .env
 .data/
 .localstorage/
+.verify/
 ```
+
+`.verify/` holds the marker `scripts/verify-web-app.sh` / `verify-worker-app.sh`
+write on a passing run (see `verification-checklist.md`) — local-only
+machine state, same category as `.data/`/`.localstorage/`, never committed
+or shipped.
 
 `.env` and `.env*.local` must both be covered — not just `.env.local`. Every
 real secret a developer fills in locally (external-integration test
@@ -117,6 +124,7 @@ out
 # Local-only data and secrets — must never reach the image.
 .data
 .localstorage
+.verify
 .env
 .env.local
 .env*.local
@@ -135,6 +143,7 @@ __pycache__
 .gitignore
 .data
 .localstorage
+.verify
 .env
 .env.local
 .env*.local

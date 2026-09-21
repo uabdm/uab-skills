@@ -25,29 +25,59 @@ succeeds — never assume or claim it worked.
 
 ### If this is a sandbox environment (Daytona, TrueForge, or similar)
 
-`preflight-check.sh` distinguishes two different failures that both block
-`npm install`/`pip install` but need different fixes, and its report tells
-you which one you hit:
+`preflight-check.sh` treats an ephemeral automation sandbox (a container
+spun up specifically to run this generation task) differently from a
+person's own machine, because there's no one present in a sandbox pipeline
+to act on "please go install Node.js yourself" the way a project leader
+can. It detects this via `is_ephemeral_sandbox()` — env vars matching
+`DAYTONA_*`/`CODESPACE_*`/`GITPOD_*`/`CODESANDBOX_*`/`E2B_*`, `/.dockerenv`,
+or a container-flavored `/proc/1/cgroup` — and, only when one of those
+fires, attempts to install Node.js itself from Node's own official binary
+release (checksum-verified against nodejs.org's published
+`SHASUMS256.txt`, never a third-party script) before giving up. Node/npm
+installed this way are also symlinked into `/usr/local/bin` so every later
+shell command in the same sandbox session finds them too, not just the
+process that ran the install — this matters because most agent harnesses
+run each shell command in its own fresh process with no inherited
+environment, so a plain `export PATH=` inside `preflight-check.sh` alone
+would never have reached a later, separate `npm install` call.
 
-- **Genuinely not installed.** The runtime just isn't there. Same guidance
-  as above — this isn't yours to fix.
-- **Present but not usable in this shell.** node/npm (or python/pip) work
-  fine in an interactive shell on the same sandbox but the script still
-  reported them missing. This is common on ephemeral, non-interactive
-  sandbox shells that never sourced the tool's init script (nvm/volta/fnm
-  for Node), and `preflight-check.sh` already tries the common fixes (known
-  install-directory PATH entries, sourcing `nvm.sh`) before concluding it's
-  actually missing. If it still fails after that, the report includes the
-  full `PATH` it saw and exactly what it tried — that's what to hand to
-  whoever maintains the sandbox image, since it's a platform-image problem,
-  not something this skill (or the model running it) can permanently fix
-  from inside a single sandbox session.
-- **Registry/network unreachable.** `preflight-check.sh` also probes
-  `registry.npmjs.org` / `pypi.org` directly, separate from the
-  binary-presence check — a sandbox can have a perfectly working npm/pip
-  and still fail every install because of an egress allowlist or missing
-  proxy config. Report this distinctly too: it's a network/platform-config
-  fix, not a "reinstall Node" fix.
+If `preflight-check.sh` still fails after that, the report tells you which
+of these you hit and what to do about each:
+
+- **The self-install itself failed.** The report's `WARN:` lines say why —
+  almost always nodejs.org being unreachable from that sandbox's network,
+  or an unsupported OS/architecture (only Linux x64/arm64 is supported;
+  Python has no equivalent official portable tarball, so a worker app in a
+  sandbox without `apt-get`+root for Python falls straight to this). This
+  is a platform/network-config problem for whoever manages the sandbox's
+  egress rules — not something a re-run fixes.
+- **This platform's sandbox wasn't detected as one at all.** If Node/npm
+  work fine in an interactive terminal on the same sandbox but
+  `preflight-check.sh` still reported it as a "person's own machine" (no
+  self-install attempted), the env-var heuristic above didn't match this
+  particular platform. Two things to do: (1) re-run with
+  `UAB_FORCE_SANDBOX=1` set to force the self-install path immediately, and
+  (2) find out what this platform actually injects — run `env | sort` in
+  that same sandbox and look for anything platform-specific (its own name,
+  a workspace/session ID) — so the detection list above can be extended to
+  recognize it automatically next time.
+- **Registry/network unreachable but Node itself is fine.**
+  `preflight-check.sh` also probes `registry.npmjs.org` / `pypi.org`
+  directly, separate from the binary-presence/install check — a sandbox
+  can have a perfectly working Node/npm and still fail every install
+  because of an egress allowlist or missing proxy config. This is a
+  network/platform-config fix, not a Node-install problem, and self-install
+  can't do anything about it.
+
+If none of `preflight-check.sh`'s own `WARN:`/report lines are visible to
+you — only a paraphrased "Node.js is not installed" summary — that's this
+skill's plain-language persona (see `SKILL.md`) hiding the technical detail
+from what it assumes is a non-technical project leader. If you're
+debugging the pipeline itself rather than acting as that project leader,
+ask directly for the script's raw, unparaphrased stdout, or run
+`scripts/preflight-check.sh web` (or `worker`) yourself in a raw terminal
+into the sandbox if the platform exposes one.
 
 ## If no archiving tool is available for packaging
 

@@ -82,10 +82,16 @@ run `scripts/preflight-check.sh web` or `scripts/preflight-check.sh worker`
 notably an ephemeral Daytona-style workspace — can boot with Node/npm or
 Python/pip present but not actually usable in the shell commands run in,
 which otherwise only surfaces as a confusing failure deep inside `npm
-install` after everything else has already been generated. If it fails,
-stop here: do not generate anything, and tell the project leader plainly
-per `references/git-workflow.md` — do not attempt to install or fix the
-sandbox yourself.
+install` after everything else has already been generated. If it detects
+it's running in an ephemeral automation sandbox (a container spun up
+specifically to run this generation task, not a person's own machine), it
+will attempt to install Node.js itself from Node's official binary release
+before giving up — there's no project leader present in that pipeline to
+act on "please go install Node.js". If it still fails after that, or it
+determined this is a real person's machine, stop here: do not generate
+anything, and tell the project leader plainly per
+`references/git-workflow.md` — do not attempt to install or fix the
+sandbox yourself in that case.
 
 **b. Emit a generation manifest.** Before writing any scaffold file, list
 every file about to be generated plus every conditional rule that fired

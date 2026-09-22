@@ -156,12 +156,10 @@ project.
 - Auto-wire every data store/integration chosen to a real local
   implementation — never ask the project leader for a connection string,
   key, or any technical value.
-- Run the verification loop (`verification-checklist.md` +
-  `scripts/verify-web-app.sh` / `verify-worker-app.sh`) after generating
-  everything. Never tell the project leader the app is ready until it
-  installs cleanly and passes every mechanical and manual check — this
-  skill does not build or run the app in-sandbox (see `SKILL.md`'s Verify
-  step for why).
-- Package the verified app into a downloadable zip (`scripts/package-app.sh`)
-  as the final step — never hand off an unzipped folder or an unverified
-  build.
+- This skill does NOT install, audit, build, run, or check the generated
+  app in any way — no `npm install`/`npm audit`/`npm run build`, no dev
+  server, no static checklist. See `SKILL.md` for why. Package it into a
+  downloadable zip (`scripts/package-app-fast.sh`) as the final step, and
+  always tell the project leader plainly that the code was generated but
+  never installed, built, or checked — see `SKILL.md`'s report-back step
+  for the exact wording.

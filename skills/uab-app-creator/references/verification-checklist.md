@@ -1,21 +1,26 @@
 # Verify & Self-Heal — deep review checklist
 
 The project leader cannot fix code. After generating everything, you MUST
-prove the app actually works before telling them it is done. `scripts/
+prove the app is sound before telling them it is done. `scripts/
 verify-web-app.sh` / `verify-worker-app.sh` handle the mechanical
-install/build/serve/curl loop, AND (as of the MECHANIZED items below) run
-`scripts/lint-checklist.sh` — a script that asserts everything on this list
-that's actually assertable by grep/test, the same way every run. That split
-exists because a model reliably running a script and reacting to a printed
-`FAIL:` line is a much lower bar than the same model reliably self-auditing
-this entire list from memory across many separate tool calls — the second
-one is where a weaker or less agentic model quietly skips steps instead of
-failing loudly. Do not manually re-derive an item tagged **MECHANIZED**
-below by reading code; trust `lint-checklist.sh`'s output for it and spend
-your own judgment on the items tagged **STILL MANUAL** instead. Loop: fix,
-re-run the affected script, repeat, until `verify-*.sh` (which includes
-`lint-checklist.sh`) passes with zero errors AND every STILL MANUAL item
-below is confirmed.
+install/audit loop (`npm install` + `npm audit`, or `pip install`), AND (as
+of the MECHANIZED items below) run `scripts/lint-checklist.sh` — a script
+that asserts everything on this list that's actually assertable by
+grep/test, the same way every run. These scripts deliberately do NOT run
+`npm run build`, start a dev server/uvicorn, or smoke-test any route — that
+happens later, at actual deployment time, not inside this code-generation
+step (see `SKILL.md`'s Verify step for why: it was the source of sandbox
+timeouts). That split (install/audit + lint-checklist here, build/run
+elsewhere) exists because a model reliably running a script and reacting
+to a printed `FAIL:` line is a much lower bar than the same model reliably
+self-auditing this entire list from memory across many separate tool
+calls — the second one is where a weaker or less agentic model quietly
+skips steps instead of failing loudly. Do not manually re-derive an item
+tagged **MECHANIZED** below by reading code; trust `lint-checklist.sh`'s
+output for it and spend your own judgment on the items tagged **STILL
+MANUAL** instead. Loop: fix, re-run the affected script, repeat, until
+`verify-*.sh` (which includes `lint-checklist.sh`) passes with zero errors
+AND every STILL MANUAL item below is confirmed.
 
 - **STILL MANUAL.** The generated file set matches the generation manifest
   emitted at the start of generation (see `SKILL.md`) — every file listed
@@ -28,9 +33,10 @@ below is confirmed.
   `scripts/package-app.sh` ships it in the zip.
 - **STILL MANUAL.** Every import resolves to a file/package that actually
   exists. Every file referenced in layout/routing/theme exists with the
-  exact name. (`npm run build` in `verify-web-app.sh` already catches most
-  of this mechanically via a compile failure — this item is for anything a
-  build wouldn't catch, e.g. a dynamically-constructed import path.)
+  exact name. `verify-web-app.sh` no longer runs `npm run build` (see the
+  top of this file), so nothing here is caught by a compile failure — this
+  item now has to be checked by actually reading the code, not skimmed as
+  "the build will catch it."
 - **STILL MANUAL.** Every environment variable the code reads appears in
   `.env.template`, and no connection-string placeholder was left for the
   user to fill in for anything the app can provide locally. If a login was
@@ -112,16 +118,22 @@ below is confirmed.
   switch actually happens at `md` when the viewport is resized — a passing
   grep for `minWidth: 0` doesn't guarantee the flex layout around it is
   correct.
-- **STILL MANUAL** (no headless-browser step exists in this skill yet). If
-  your tool can render the page and capture what it looks like (a browser
-  tool, an MCP browser server, a preview pane) — not just fetch HTTP status
-  — do so for the home page at a standard desktop width (~1280px) and a
-  mobile width (~375px). Confirm: nothing overlaps, no unintended horizontal
-  scrollbar, the footer renders as specified without wrapping, and the
-  logo's rendered proportions match its source file. If your tool cannot
-  render/capture the page this way, do NOT tell the project leader layout
-  was visually confirmed — say plainly that only functional checks were
-  possible.
+- **OPTIONAL / STILL MANUAL.** `verify-web-app.sh` no longer starts the app
+  (see the top of this file), so there is nothing running to visually
+  render by default — do not start one yourself (`npm run dev`, `npm run
+  build`) just to perform this check; that reintroduces the exact sandbox
+  timeout risk this skill removed the build/serve step to avoid. This
+  check is skipped in the standard flow. If the project leader specifically
+  asks to see what the app looks like before downloading it, and your tool
+  can genuinely render a page (a browser tool, an MCP browser server, a
+  preview pane), that's the one case where starting the app locally to look
+  at it is worth the risk — do so via `scripts/bg-run.sh`/`scripts/
+  bg-status.sh`, never a blocking command, and confirm the home page at a
+  standard desktop width (~1280px) and mobile width (~375px): nothing
+  overlaps, no unintended horizontal scrollbar, the footer renders as
+  specified without wrapping, and the logo's rendered proportions match its
+  source file. Otherwise, do NOT tell the project leader layout was
+  visually confirmed — say plainly that only the automated code checks ran.
 - **MECHANIZED** (`scripts/package-app.sh` itself, after zipping). Confirms
   `<app-name>.zip` exists, is non-empty, and spot-checks that it does NOT
   contain `node_modules/`, `.next/`, `__pycache__/`, `.venv/`, `.git/`,
@@ -136,6 +148,6 @@ below is confirmed.
   unless `.verify/PASSED` exists and matches the current source — this is
   the enforced version of this rule, not just a reminder to follow it.
 - Loop: when you fix something, re-run the affected script.
-- Report the result in plain, non-technical language, e.g.: "I built your
-  app, confirmed the home page and health check both load correctly, and
-  packaged everything into a zip file you can download."
+- Report the result in plain, non-technical language, e.g.: "I checked
+  every part of your app for errors, ran a security scan on everything it
+  depends on, and packaged everything into a zip file you can download."

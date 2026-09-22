@@ -70,19 +70,25 @@ of these you hit and what to do about each:
   network/platform-config fix, not a Node-install problem, and self-install
   can't do anything about it.
 
-### If a command times out mid-verify (e.g. "command execution timeout" on `npm run build`)
+### If a command times out mid-verify (e.g. "command execution timeout" on `npm install`)
 
 This is the sandbox harness's OWN per-command wall-clock limit killing the
-shell call, not `npm`/`next` reporting a build failure — a cold Next.js
-production build (type-check + lint + compile) commonly takes 1-5 minutes,
-and some sandboxes (confirmed on TrueForge's Daytona-backed sandbox)
-enforce a ceiling well under that. The fix is `scripts/bg-run.sh` /
-`scripts/bg-status.sh` (see `SKILL.md`'s Verify step) — run the slow
-command detached and poll it in small, cheap, separate calls instead of
-one call that has to finish inside the timeout window. Do not: retry the
-same blocking call hoping it's faster this time, run steps "manually" to
-dodge the timeout without backgrounding them, or guess that a build
-probably succeeded because it got partway through before being killed.
+shell call, not `npm`/`pip` reporting a real failure — some sandboxes
+(confirmed on TrueForge's Daytona-backed sandbox) enforce a ceiling that a
+cold, large dependency install can still exceed even though `verify-web-
+app.sh` / `verify-worker-app.sh` no longer run a build or start the app
+(that used to be the far more common cause of this, and is why those
+scripts were trimmed down to install + audit + the mechanical checklist
+only — see `SKILL.md`'s Verify step). The fix is `scripts/bg-run.sh` /
+`scripts/bg-status.sh` — run the slow command detached and poll it in
+small, cheap, separate calls instead of one call that has to finish inside
+the timeout window. Do not: retry the same blocking call hoping it's
+faster this time, run steps "manually" to dodge the timeout without
+backgrounding them, or guess that an install probably succeeded because it
+got partway through before being killed. And never reintroduce a build or
+a running dev server into this verify step to "double-check" it — that
+reopens the exact timeout this section describes; building and running the
+app is intentionally left for actual deployment time.
 
 If none of `preflight-check.sh`'s own `WARN:`/report lines are visible to
 you — only a paraphrased "Node.js is not installed" summary — that's this

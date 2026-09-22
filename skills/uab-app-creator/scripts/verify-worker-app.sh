@@ -1,31 +1,20 @@
 #!/usr/bin/env bash
-# Mechanical verification for the Python/FastAPI worker layout: install,
-# start uvicorn, and confirm /health returns 200 with a clean log. Also
-# runs lint-checklist.sh and, only on a full pass, writes .verify/PASSED —
-# see verify-web-app.sh for the Next.js equivalent and the full design
-# note on why that marker exists (it's what makes package-app.sh's
-# packaging gate enforced rather than a rule the model has to remember).
+# Mechanical verification for the Python/FastAPI worker layout: install
+# dependencies only. Also runs lint-checklist.sh and, only on a full pass,
+# writes .verify/PASSED — see verify-web-app.sh for the Next.js equivalent,
+# the full design note on why that marker exists (it's what makes
+# package-app.sh's packaging gate enforced rather than a rule the model has
+# to remember), and why this deliberately does NOT start uvicorn or curl
+# /health: this app's own Dockerfile still runs it for real at actual
+# deployment time, and re-running it a second time here, inside a
+# throwaway code-generation sandbox, is redundant with that.
 #
-# Run from the generated app's repo root. Always stops uvicorn before
-# exiting, pass or fail.
+# Run from the generated app's repo root.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_verify_hash.sh
 source "$SCRIPT_DIR/_verify_hash.sh"
-
-PORT="${PORT:-8000}"
-LOG_FILE="$(mktemp)"
-SERVER_PID=""
-
-cleanup() {
-  if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    echo "== stopping uvicorn (pid $SERVER_PID) =="
-    kill "$SERVER_PID" 2>/dev/null || true
-    wait "$SERVER_PID" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT
 
 fail() {
   echo "FAIL: $1"
@@ -54,44 +43,12 @@ echo "$("$PYTHON_BIN" --version)"
 
 echo "== STEP 1: pip install -r requirements.txt =="
 "$PYTHON_BIN" -m pip install -r requirements.txt || fail "pip install failed — see the error above"
+echo "PASS: pip install succeeded"
 
-echo "== STEP 3: start uvicorn =="
-"$PYTHON_BIN" -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" >"$LOG_FILE" 2>&1 &
-SERVER_PID=$!
-
-echo "waiting for http://localhost:$PORT/health to respond..."
-ready=""
-for _ in $(seq 1 20); do
-  if curl -s -o /dev/null "http://localhost:$PORT/health"; then
-    ready="yes"
-    break
-  fi
-  sleep 1
-done
-if [ "$ready" != "yes" ]; then
-  echo "---- server log ----"
-  cat "$LOG_FILE"
-  fail "uvicorn never became ready within 20s"
-fi
-
-health_status="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/health")"
-if [ "$health_status" != "200" ]; then
-  echo "---- server log ----"; cat "$LOG_FILE"
-  fail "GET /health returned $health_status, expected 200"
-fi
-echo "GET /health -> 200 OK"
-
-if grep -qiE 'error|traceback' "$LOG_FILE"; then
-  echo "---- server log contains 'error'/'traceback' — review before calling this clean ----"
-  cat "$LOG_FILE"
-fi
-
-echo "PASS: install and health check succeeded"
-
-echo "== STEP 4: mechanical checklist (lint-checklist.sh) =="
+echo "== STEP 2: mechanical checklist (lint-checklist.sh) =="
 "$SCRIPT_DIR/lint-checklist.sh" worker || fail "lint-checklist.sh found problems — fix them, then re-run this script. Packaging is blocked until this passes."
 
-echo "== STEP 5: writing verification marker =="
+echo "== STEP 3: writing verification marker =="
 mkdir -p .verify
 SOURCE_HASH="$(compute_source_hash)" || fail "could not compute a verification hash — see the error above"
 {

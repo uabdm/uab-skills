@@ -339,7 +339,7 @@ fi
 # ---------------------------------------------------------------------------
 # Shared, both app types.
 if ! command -v curl >/dev/null 2>&1; then
-  add_problem "curl not found — verify-web-app.sh/verify-worker-app.sh need it for health checks"
+  add_problem "curl not found — this preflight check needs it to confirm npm/PyPI registry reachability, and a sandbox self-install of Node needs it too"
 fi
 if ! command -v zip >/dev/null 2>&1 && ! command -v powershell.exe >/dev/null 2>&1 \
    && { ! command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; }; then
@@ -353,7 +353,7 @@ if [ "${#INSTALLED[@]}" -gt 0 ]; then
 fi
 
 if [ "${#PROBLEMS[@]}" -eq 0 ]; then
-  echo "PASS: this sandbox can run the $APP_TYPE verify/build/install steps"
+  echo "PASS: this sandbox can run the $APP_TYPE install/audit/verify steps"
   exit 0
 fi
 

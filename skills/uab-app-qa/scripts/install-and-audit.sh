@@ -20,6 +20,8 @@ fail() {
   exit 1
 }
 
+command -v npm >/dev/null 2>&1 || fail "npm not found in this sandbox — run scripts/check-and-install-tools.sh first (see references/environment-preflight.md) before retrying this script"
+
 echo "== npm install =="
 npm install || fail "npm install failed — see references/dependency-audit.md for common causes (peer dependency conflicts, lockfile drift, engines mismatch) before reaching for --legacy-peer-deps or --force"
 

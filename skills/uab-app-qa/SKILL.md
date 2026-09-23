@@ -47,11 +47,12 @@ first would have.
   given a zip, extract it first.
 - App type: **web** (`package.json` with `next` as a dependency) or
   **worker** (Python, no UI). This skill's depth is in the web path
-  (Phases 1–4 below in full). For a worker app, Phase 1 becomes `pip
-  install` + `pip-audit`/`safety` if available, Phase 2 is whatever test
-  command the project defines (`pytest`, etc.), and Phase 3 (browser
-  smoke test) doesn't apply — there's no UI to click. Report that plainly
-  rather than silently skipping it without saying so.
+  (Phases 0–4 below in full). For a worker app, Phase 0 checks for
+  `python3`/`pip3` instead of `node`/`npm`, Phase 1 becomes `pip install` +
+  `pip-audit`/`safety` if available, Phase 2 is whatever test command the
+  project defines (`pytest`, etc.), and Phase 3 (browser smoke test)
+  doesn't apply — there's no UI to click. Report that plainly rather than
+  silently skipping it without saying so.
 
 ## Workflow (web app)
 
@@ -60,6 +61,22 @@ just because Phase 1 and 2 passed. A clean build proves the code compiles;
 it proves nothing about what happens when a real browser renders and
 hydrates the page, which is exactly the class of bug (hydration errors,
 console errors, broken interactions) this skill exists to catch.
+
+### Phase 0 — Environment preflight
+
+`references/environment-preflight.md`. Before running a single install/
+build/test command, confirm this sandbox actually has the tools to run it:
+`scripts/check-and-install-tools.sh`. Don't assume `npm`/`node` (or
+`python3`/`pip3` for a worker app) are already present just because a prior
+generation step ran somewhere else that had them — this skill is
+explicitly meant to also run on a person's own machine, a CI runner, or a
+cold unzipped download, none of which are guaranteed to match the
+generation sandbox. If a required tool is missing, the script attempts a
+best-effort install (via whatever package manager is actually present)
+before falling through to Phase 1. If a tool genuinely can't be installed
+in this sandbox (no package-manager access), that's a real environment
+limit — say so plainly and go straight to "Timeout escalation" below
+rather than attempting Phase 1 anyway with a command that's about to fail.
 
 ### Phase 1 — Dependencies & security
 
@@ -71,6 +88,12 @@ must be self-sufficient whether the app came from `uab-app-creator`
 installed at all), or a zip handed to you cold. Loop: fix, re-run, repeat
 until `npm install` succeeds clean and `npm audit --audit-level=high`
 reports zero unresolved high/critical vulnerabilities.
+
+**Always finish this phase before spending time on Phase 2 or 3, even in a
+sandbox you already suspect will struggle with a build** — see "Timeout
+escalation" below. A dependency-installed, vulnerability-audited app that
+never got build-tested is a strictly better handoff than one nothing was
+done to at all, so protect this phase's result first.
 
 ### Phase 2 — Build
 
@@ -105,13 +128,17 @@ doesn't cover.
 
 ### Phase 5 — Report
 
-Plain-language summary: what ran and passed, what was found and fixed
-(one line per fix, with a `file:line` citation), the current `npm audit`
-status, and any item that couldn't be verified in this environment and
-needs a human look (e.g., a flow that requires real third-party
-credentials, a payment integration, an external service this sandbox can't
-reach). Never say "fully working" if any phase didn't actually complete —
-say exactly which phase got furthest and why the rest couldn't run.
+Plain-language summary: which tools Phase 0 found vs. had to install, what
+ran and passed, what was found and fixed (one line per fix, with a
+`file:line` citation), the current `npm audit` status, and any item that
+couldn't be verified in this environment and needs a human look (e.g., a
+flow that requires real third-party credentials, a payment integration, an
+external service this sandbox can't reach). Never say "fully working" if
+any phase didn't actually complete — say exactly which phase got furthest
+and why the rest couldn't run. If this run ended via "Timeout escalation"
+below, report it the way `references/timeout-fallback.md` describes —
+which phases actually passed, what timed out, and the handoff zip's path —
+not as a normal Phase 5 summary.
 
 ## Backgrounding long commands
 
@@ -127,6 +154,26 @@ backgrounding (for example Claude Code's Bash `run_in_background` plus a
 instead; it's the same idea and doesn't need the `.qa/bg/` bookkeeping
 `bg-run.sh` uses for jobs that terminate. The scripts are the portable
 fallback for environments without that.
+
+## Timeout escalation: when to stop and ship a zip instead
+
+Full policy in `references/timeout-fallback.md` — read it before the first
+time this triggers, not after. Summary: backgrounding (above) handles a
+*slow* command; it doesn't guarantee this sandbox can finish one at all.
+Once the same command has timed out twice, or two different phases have
+each timed out independently, stop retrying and escalate rather than
+looping a third time:
+
+1. Make sure Phase 1 (install + audit) actually completed and its fixes
+   are sitting in `package.json`/`package-lock.json` — protect that result
+   above everything else, per Phase 1 above.
+2. Run `scripts/package-for-handoff.sh` to zip the app for download or
+   moving to another repo/sandbox (it excludes `node_modules` and build
+   output so the archive itself isn't a timeout risk).
+3. Report exactly which phases passed, which one hit the limit and how,
+   and the zip's path — per Phase 5 and `references/timeout-fallback.md`.
+   This is a work-in-progress handoff, not a clean pass — never phrase it
+   as one.
 
 ## Browser automation: Playwright first, `claude-in-chrome` optional
 
@@ -164,9 +211,19 @@ you the same reliable, scriptable console-error capture Playwright does.
 - If something can't be verified in this environment (no real credentials,
   no reachable external service), say so plainly in the report instead of
   marking it passed or silently leaving it out.
+- Never start Phase 1 without first confirming (Phase 0) that the tools it
+  needs actually exist in this sandbox — a missing-tool failure and a real
+  dependency/build defect must never get tangled up in the same log.
+- Never abandon a struggling sandbox silently. If timeouts genuinely make
+  further phases impossible, that's "Timeout escalation" above: package
+  what exists and report it plainly — never just stop responding to the
+  task or claim a phase passed when it never actually ran.
 
 ## Reference index
 
+- `references/environment-preflight.md` — Phase 0's tool-detection and
+  best-effort install logic, and what to do when a tool genuinely can't be
+  installed in this sandbox.
 - `references/dependency-audit.md` — `npm install`/`npm audit` loop,
   common incompatibility patterns and how to actually fix them (not just
   detect them).
@@ -178,3 +235,6 @@ you the same reliable, scriptable console-error capture Playwright does.
 - `references/common-bug-patterns.md` — a running catalog of confirmed
   runtime bugs and their fixes, seeded from real findings in generated
   apps — check here before re-deriving a fix from scratch.
+- `references/timeout-fallback.md` — the escalation policy for a sandbox
+  that can't finish a phase, and how to package a handoff zip with
+  `scripts/package-for-handoff.sh` instead of stalling.

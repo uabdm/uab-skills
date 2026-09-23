@@ -88,6 +88,30 @@ Two things are both required, verified directly against
 </Box>
 ```
 
+### Top spacing inside the nav, below the AppBar
+
+Give `navContent` more top breathing room than a reflexive body padding
+value — a nav item sitting flush against the green AppBar reads as broken
+even when the layout above is structurally correct. Confirmed feedback on
+a generated app: `p: 2` (16px) uniformly was too tight between the AppBar
+and the first nav item. Use an asymmetric padding with a larger top value
+instead of bumping all sides:
+
+```tsx
+const navContent = (
+  <Box sx={{ px: 2, pb: 2, pt: 4 }}>
+    <Typography variant="h6" sx={{ color: 'text.primary', mb: 2 }}>Navigation</Typography>
+    {/* nav items */}
+  </Box>
+);
+```
+
+If using a `<Toolbar />` spacer inside the `Drawer` instead of `mt: 8` on
+the row (both are valid ways to sit the nav content below the fixed
+AppBar — pick one, don't combine them), add the same extra top padding on
+the `Box` that follows the spacer rather than relying on the spacer's
+height alone: `<Box sx={{ overflow: 'auto', pt: 2 }}>`.
+
 ## Skip link (WCAG 2.1 AA, SC 2.4.1 Bypass Blocks)
 
 Source: `MyUABPortal/src/Containers/Portal/Top/Top.js:52-67,75`. A real,

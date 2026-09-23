@@ -91,11 +91,16 @@ important gaps first.
     Nondiscrimination Statement) — [`footer-template.md`](footer-template.md).
 23. Nondiscrimination Statement dialog text matches verbatim, not
     paraphrased or shortened.
-24. Typography: headings use the display face (h1/h3), body/UI text uses
+24. The `Typography` inside `DialogTitle` does NOT have `component="h2"`
+    — `DialogTitle` already renders `<h2>` internally, so a nested one is
+    invalid HTML and throws a hydration error the moment the dialog opens
+    (confirmed bug — see [`footer-template.md`](footer-template.md)). Grep
+    for `<DialogTitle` in the app and check every `Typography` inside it.
+25. Typography: headings use the display face (h1/h3), body/UI text uses
     the body face with a real fallback stack, per
     [`typography.md`](typography.md) — check the theme's `typography`
     block, not just that *some* custom font is referenced somewhere.
-25. Typography sizing: every variant in the theme's `typography` block has
+26. Typography sizing: every variant in the theme's `typography` block has
     an explicit `fontSize` matching [`typography.md`](typography.md)'s
     table — not just `fontFamily`/`fontWeight`. Fail if `h1`'s computed
     size is anywhere near MUI's raw default (`6rem`/96px) instead of the
@@ -114,4 +119,4 @@ For each numbered item, one line: pass/fail/n/a, file:line, one-sentence
 reason if it's a fail. Close with a short prose summary grouping "got it
 right" vs. "fell short," same shape used for the
 `timeoff-demo-app-slim-litelllm` audit this checklist was built from —
-don't just dump the 25-line checklist and stop, synthesize it.
+don't just dump the 26-line checklist and stop, synthesize it.

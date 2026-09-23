@@ -31,7 +31,7 @@ function NondiscriminationDialog({ open, onClose }: { open: boolean; onClose: ()
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h5" component="h2">Nondiscrimination Statement</Typography>
+        <Typography variant="h5" component="span">Nondiscrimination Statement</Typography>
         <IconButton aria-label="Close" onClick={onClose}>
           <CloseIcon />
         </IconButton>
@@ -139,3 +139,17 @@ overrides (see `focus-and-motion.md`) — nothing extra needed here.
   guideline is explicit that this text must not be paraphrased).
 - Grep `Footer.tsx` (or wherever the footer lives) for a raw hex string —
   flag any color not expressed as a `theme.palette.*` reference.
+- The `Typography` inside `DialogTitle` must NOT have `component="h2"`.
+  `DialogTitle` itself already hardcodes `component: "h2"` internally
+  (verified at `@mui/material/DialogTitle/DialogTitle.js`) — an inner
+  `Typography` also forcing `component="h2"` produces a literal
+  `<h2>` nested inside `<h2>`, which is invalid HTML and throws a Next.js
+  hydration error the moment the dialog opens (confirmed bug: clicking
+  "Nondiscrimination Statement" crashed with "In HTML, `<h2>` cannot be a
+  child of `<h2>`"). Use `component="span"` on the inner `Typography`
+  instead — `DialogTitle`'s own `<h2>` already provides the accessible
+  heading via `aria-labelledby`, so the inner element only needs to carry
+  the visual `h5` size, not a second heading role. This same "does the MUI
+  wrapper already default to a heading tag?" question applies anywhere
+  else a `Typography` is nested inside `DialogTitle`, `AccordionSummary`,
+  or similar MUI components that pick their own default `component`.

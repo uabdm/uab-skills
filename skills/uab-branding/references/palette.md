@@ -26,6 +26,7 @@ every generated app:
 | `background.default` | `#F2F2F3` | `#022b1a` | |
 | `background.paper` | `#ffffff` | `#1A5632` | paper == primary.main in dark mode |
 | `divider` | `#033319` | `#558674` | portal uses `#D3D3D3` for `MuiDivider.root.borderColor` in light mode specifically — see `theme-templates/LightTheme.js` |
+| `text.primary` | `#1A5632` | `#fff` | **Required, not optional.** See decision record below — omitting this is what caused the black-text bug. |
 
 **Warning color caveat:** the portal's `warning` palette entry is
 `{ main: '#ffe357', light: '#fff1ab', dark: '#ffd400' }` — i.e. its `main`
@@ -49,6 +50,50 @@ implementation. They are **not** carried forward into this skill's core
 set or full-palette reference below — if they're still an active part of
 the brand guide and should be reintroduced, that needs a fresh check
 against `uab.edu/brandguide/university/colors`, not a guess.
+
+## Decision record (2026-09-23, `text.primary`)
+
+Found via a user report on `uab-app-creator-nobrand-helloworld`: the
+generated app's light-mode homepage rendered "Welcome!" and other default
+`<Typography>` text in near-black instead of UAB Green.
+
+Root cause: the portal's `LightTheme.js`/`DarkTheme.js` hardcode `color:
+'#1A5632'`/`'#fff'` on every individual typography variant (h1-h6, body1,
+body2, button, caption, overline, subtitle1) — MUI v4-era
+belt-and-suspenders styling. When `theme-templates/` translated this to v5
+idiom, `themeShared.js`'s `typographyVariants` correctly dropped the
+per-variant repetition (v5 `Typography` should inherit color from
+`palette.text.primary`) — but nothing ever set `palette.text.primary` to
+compensate. It was previously listed only under "full portal palette,
+documented but not wired" below, which undersold how load-bearing it is.
+
+Effect: with `text.primary` unset, MUI silently falls back to its own
+built-in default (`rgba(0, 0, 0, 0.87)` in light mode, `#fff` in dark
+mode) instead of raising an error. Dark mode looked correct by pure
+coincidence — MUI's own dark-mode default happens to equal the portal's
+branded dark text color. Light mode did not, because MUI's default there
+is black, not UAB Green. **A theme review that only checks dark mode, or
+only checks that *some* color renders, will miss this class of bug** —
+always verify text color in light mode specifically, and verify it's
+coming from an explicit token, not an unset-property coincidence.
+
+Fix: `text.primary` is promoted from "documented, not wired" to the
+trimmed core set (row above) and is now set explicitly in both
+`theme-templates/LightTheme.js` and `DarkTheme.js`, with a comment
+explaining why it can't be left to MUI's default even where the default
+happens to match.
+
+`text.secondary` is deliberately **not** promoted the same way — the
+portal's own `text.secondary` values are `'#fff'` (light) / `'#1A5632'`
+(dark), which look like they're meant for text sitting on a colored
+(green) surface, not as a drop-in replacement for MUI's `text.secondary`
+(used broadly for helper text, captions, and secondary list text on plain
+`background.paper`). Wiring `text.secondary: '#fff'` into the light theme
+verbatim would make things like `<Typography color="text.secondary">`
+invisible against a white `Paper` — trading one contrast bug for a worse
+one. If a generated app needs the portal's actual `text.secondary`
+behavior, that requires reading how the portal *uses* that token in
+context first, not copying the raw value.
 
 ## Full portal palette — documented, NOT wired into generated themes
 

@@ -49,6 +49,17 @@ export const LightTheme = responsiveFontSizes(createTheme({
     success: { main: '#80BC00' },
     background: { default: '#F2F2F3', paper: '#ffffff' },
     divider: '#D3D3D3',
+    // Portal's LightTheme.js hardcodes `color: '#1A5632'` on every single
+    // typography variant (h1-h6, body1, body2, button, caption...) plus
+    // `typography.color` at the top level — MUI v4-era belt-and-suspenders.
+    // typographyVariants below intentionally doesn't repeat that per
+    // variant (v5 idiom: let Typography inherit palette.text.primary
+    // instead). That ONLY works if text.primary is actually set here —
+    // leaving it unset silently falls back to MUI's own default
+    // (rgba(0,0,0,0.87), i.e. near-black), not UAB Green. Confirmed bug in
+    // uab-app-creator-nobrand-helloworld's generated homepage: "Welcome!"
+    // rendered black because this line was missing. See palette.md.
+    text: { primary: '#1A5632' },
   },
   typography: typographyVariants,
   components: {

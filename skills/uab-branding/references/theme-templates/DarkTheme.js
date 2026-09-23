@@ -37,6 +37,11 @@ export const DarkTheme = responsiveFontSizes(createTheme({
     success: { main: '#80BC00' },
     background: { default: '#022b1a', paper: '#1A5632' },
     divider: '#558674',
+    // Explicit even though it matches MUI's own dark-mode default (#fff) —
+    // see the matching comment in LightTheme.js. Don't rely on that
+    // default staying white; state it so both themes are equally
+    // load-bearing rather than one being branded and one being coincidence.
+    text: { primary: '#fff' },
   },
   typography: typographyVariants,
   components: {

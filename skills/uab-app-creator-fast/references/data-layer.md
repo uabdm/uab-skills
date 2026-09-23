@@ -59,9 +59,12 @@ provisions.
   leader's team later puts this folder under git themselves), written
   WITHOUT a leading `./` — `./.data/` is not valid gitignore syntax and
   silently matches nothing.
-- `scripts/package-app.sh` also excludes both of these directories from the
-  handoff zip directly — the zip should never ship a local SQLite file or
-  uploaded test files from the machine that generated it.
+- `scripts/package-app-fast.sh` also excludes both of these directories
+  from the handoff zip directly — the zip should never ship a local SQLite
+  file or uploaded test files from the machine that generated it. (Moot in
+  practice here, since this skill never runs the app to create either, but
+  keep the exclusion — harmless, and correct if this code is later run
+  through the full `uab-app-creator` flow or by hand.)
 
 ## `.gitignore` — generate at the repo root, always
 
@@ -86,18 +89,18 @@ __pycache__/
 .verify/
 ```
 
-`.verify/` holds the marker `scripts/verify-web-app.sh` / `verify-worker-app.sh`
-write on a passing run (see `verification-checklist.md`) — local-only
-machine state, same category as `.data/`/`.localstorage/`, never committed
-or shipped.
+`.verify/` is included defensively — this skill never writes anything
+there itself (it doesn't install, audit, or verify the app at all, see
+`SKILL.md`), but the full `uab-app-creator` skill's verify scripts do use
+it for local-only machine state, same category as `.data/`/`.localstorage/`,
+and this code may end up running through that flow (or by hand) later.
 
 `.env` and `.env*.local` must both be covered — not just `.env.local`. Every
 real secret a developer fills in locally (external-integration test
 credentials — see `.env.local` in `auth-hydra-oidc.md` and
 `decision-matrix.md`) lives in one of these files, never in `.env.template`,
 so a gap here is a real path for a secret to get committed by accident if
-the project leader's team later puts this folder under git. Confirm this in
-`verification-checklist.md`.
+the project leader's team later puts this folder under git.
 
 ## `.dockerignore` — generate at the repo root, ALWAYS
 
@@ -158,5 +161,4 @@ Load-bearing vs. hygiene (so it can be adapted per project): `node_modules`
 omitting them reintroduces the host-overwrites-container bug. `.env*`,
 `.data`, `.localstorage` are security/correctness — always keep. `.git`,
 `.claude`, `.vscode`, `*.md` are pure hygiene; `!README.md` re-includes the
-README some tooling expects. Adjust these freely. Confirm this file exists
-in `verification-checklist.md`.
+README some tooling expects. Adjust these freely.

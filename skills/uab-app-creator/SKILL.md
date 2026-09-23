@@ -1,6 +1,6 @@
 ---
 name: uab-app-creator
-description: Turns a UAB project idea into a working local application — interviews a non-technical project owner one question at a time, silently applies UAB's platform decision matrix (auth, data storage, sensitivity review), then generates a full Next.js+MUI or Python/FastAPI app with Ory Hydra OIDC login and UAB branding, verifies it actually builds and runs, and packages the whole project into a downloadable zip. This is the lightweight, code-only counterpart to the full UAB app builder — it never touches git, never generates Azure Bicep infrastructure, and never sets up deployment pipelines; it just hands back working source code. Use this whenever the user wants a UAB app scaffold to run locally or hand off to a dev team without setting up Azure deployment yet, mentions "IDEA.md," asks to scaffold/generate/bootstrap a UAB app as source code / a zip / a download, or is interviewing a non-technical stakeholder about what an app should do (even if they don't use the word "scaffold").
+description: Turns a UAB project idea into working source code — interviews a non-technical project owner one question at a time, silently applies UAB's platform decision matrix (auth, data storage, sensitivity review), then generates a full Next.js+MUI or Python/FastAPI app with Ory Hydra OIDC login and UAB branding, installs and security-audits its dependencies, runs a mechanical code checklist, and packages the whole project into a downloadable zip. This is the lightweight, code-only counterpart to the full UAB app builder — it never touches git, never generates Azure Bicep infrastructure, never sets up deployment pipelines, and (unlike the full builder) never runs a build or starts the app inside the generation sandbox — that happens later, as part of an actual deployment. Use this whenever the user wants a UAB app scaffold to run locally or hand off to a dev team without setting up Azure deployment yet, mentions "IDEA.md," asks to scaffold/generate/bootstrap a UAB app as source code / a zip / a download, or is interviewing a non-technical stakeholder about what an app should do (even if they don't use the word "scaffold").
 ---
 
 # UAB App Creator
@@ -76,6 +76,23 @@ generate everything, then verify.
 (none / Hydra / stubbed), data storage, external integrations, and AI
 usage.
 
+**a2. Preflight the environment.** Before writing a single scaffold file,
+run `scripts/preflight-check.sh web` or `scripts/preflight-check.sh worker`
+(matching the app type from step a). This exists because some sandboxes —
+notably an ephemeral Daytona-style workspace — can boot with Node/npm or
+Python/pip present but not actually usable in the shell commands run in,
+which otherwise only surfaces as a confusing failure deep inside `npm
+install` after everything else has already been generated. If it detects
+it's running in an ephemeral automation sandbox (a container spun up
+specifically to run this generation task, not a person's own machine), it
+will attempt to install Node.js itself from Node's official binary release
+before giving up — there's no project leader present in that pipeline to
+act on "please go install Node.js". If it still fails after that, or it
+determined this is a real person's machine, stop here: do not generate
+anything, and tell the project leader plainly per
+`references/git-workflow.md` — do not attempt to install or fix the
+sandbox yourself in that case.
+
 **b. Emit a generation manifest.** Before writing any scaffold file, list
 every file about to be generated plus every conditional rule that fired
 (auth on/off, login gate on/off, data modules, integrations, sensitivity
@@ -94,31 +111,84 @@ when you reach that step:
    3. `README.md` — `references/readme-template.md`.
 
 **d. Verify.** Run `scripts/verify-web-app.sh` or `scripts/verify-worker-app.sh`
-depending on app type, then work through the judgment checklist in
-`references/verification-checklist.md`. Loop: fix, re-run the affected
-script, repeat until everything passes with zero errors. **Never tell the
-project leader the app is ready before this passes.**
+depending on app type. Each of these installs dependencies (`npm install`,
+or `pip install -r requirements.txt`), and — for the web app — runs
+`npm audit fix` then `npm audit` and fails if high/critical vulnerabilities
+remain unresolved. Each also runs `scripts/lint-checklist.sh` (the
+mechanized subset of `references/verification-checklist.md`) and, only on
+a full pass, writes `.verify/PASSED`. Then work through the remaining,
+genuinely judgment-based items in `references/verification-checklist.md`
+— the ones marked "still manual" there; do not re-derive what the script
+already checked by hand. Loop: fix, re-run the affected script, repeat
+until everything passes with zero errors. **Never tell the project leader
+the app is ready before this passes.**
+
+These verify scripts deliberately do **not** run `npm run build`, start a
+dev server or uvicorn, or curl any route/smoke-test the app — building and
+running the app happens later, as part of whatever actually deploys it
+(a Kubernetes pipeline, a developer's own machine), not inside this
+code-generation step. Re-running that build/serve loop a second time here
+was both redundant with that later step and the source of the sandbox
+timeouts described below — never add it back in as a "just to be safe"
+step, even manually.
+
+If step a2's preflight detected an ephemeral sandbox, OR any single
+command has already timed out once in this session, do NOT call
+`verify-web-app.sh`/`verify-worker-app.sh` (or `npm install`/`pip install`
+directly) as one blocking command — some sandbox harnesses (confirmed on
+TrueForge's Daytona-backed sandbox) enforce a per-command wall-clock
+timeout that a cold, large dependency install can still exceed even
+without a build or dev server on top of it. Instead run it detached and
+poll it:
+```
+scripts/bg-run.sh verify bash scripts/verify-web-app.sh
+scripts/bg-status.sh verify   # repeat this every ~10-15s until it prints DONE
+```
+`bg-run.sh` returns almost instantly regardless of how long the wrapped
+command takes; `bg-status.sh` is cheap enough to call repeatedly without
+risking a timeout itself. Do not improvise a different workaround (running
+steps "manually" one at a time, guessing at partial output, assuming it
+probably worked) — that produces exactly the kind of non-deterministic,
+hard-to-reproduce failure this pattern exists to avoid.
 
 **e. Package.** Only after verification passes, run
-`scripts/package-app.sh` from the generated app's folder. It zips up every
-source file — excluding installed dependencies, build output, and any real
-local secrets — into `<app-name>.zip` alongside the project. Read its
-output; if it reports failure because no archiving tool was found on this
-machine, tell the project leader plainly that the app folder itself
+`scripts/package-app.sh` from the generated app's folder. It refuses to run
+at all unless `.verify/PASSED` exists and matches the current source — so a
+fix made after the last passing verify run (however small) blocks
+packaging until the matching verify script is re-run, rather than relying
+on remembering to re-verify. It then zips up every source file — excluding
+installed dependencies, build output, the verification marker, and any
+real local secrets — into `<app-name>.zip` alongside the project, and
+spot-checks the zip's own contents afterward. Read its output; if it
+reports failure because no archiving tool was found on this machine, tell
+the project leader plainly that the app folder itself
 (`references/readme-template.md` explains what's in it) is ready to hand
 off, and that whoever picks it up can zip it themselves.
 
+**Never zip the app folder any other way** — not with a raw `zip`/`tar`/
+`Compress-Archive` command you write yourself, not "just this once" because
+`package-app.sh` hit friction, not because verification is taking too long
+or a command timed out. `scripts/package-app.sh` is the ONLY path that
+enforces the `.verify/PASSED` gate above; a hand-rolled zip command
+produces a file that looks identical to the project leader but has none of
+that gate's guarantees — including, concretely, that `npm audit` actually
+came back clean. If `package-app.sh` itself won't run, that's a problem to
+fix or report (see `references/git-workflow.md`), never a reason to
+route around it.
+
 **f. Report back**, in plain language:
    - What the app does (one sentence).
-   - That you built it and confirmed it runs and the page loads correctly.
+   - That you checked all its pieces for errors and ran a security scan on
+     everything it depends on, and fixed anything that came up — not that
+     you started the app itself, since that happens later.
    - Where to find the downloadable zip file, and that it contains the
-     complete, working source code — nothing needs to be installed or
-     configured to open and read it.
-   - That running it for real (installing dependencies, starting it) takes
-     one or two commands listed in the included README, and that if they
-     want it deployed somewhere permanent, that's a separate step for a
-     developer or their IT team — this skill hands off working code, not a
-     live deployment.
+     complete source code — nothing needs to be installed or configured to
+     open and read it.
+   - That running it for real (installing dependencies, starting it, and
+     building it) takes a couple of commands listed in the included README,
+     and that if they want it deployed somewhere permanent, that's a
+     separate step for a developer or their IT team — this skill hands off
+     working code, not a live deployment.
 
 ## Principles to preserve
 

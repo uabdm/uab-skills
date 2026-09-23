@@ -7,19 +7,97 @@ when the environment is missing something `scripts/verify-web-app.sh` /
 
 ## If node/python isn't installed
 
-If the runtime check in `verify-web-app.sh` / `verify-worker-app.sh` fails,
-do not attempt to install it yourself — you don't know what permissions this
-machine's user has, and a half-finished or failed install is worse than not
-trying. Tell whoever is present, plainly, which one is missing, that they
-(or whoever manages their computer) need to install it (Node.js from
+`scripts/preflight-check.sh` runs the runtime check for both
+`verify-web-app.sh` / `verify-worker-app.sh` and, as of step a2 in
+`SKILL.md`, before generation even starts. If it fails, do not attempt to
+install anything yourself — you don't know what permissions this machine's
+user has, and a half-finished or failed install is worse than not trying.
+Tell whoever is present, plainly, which one is missing, that they (or
+whoever manages their computer) need to install it (Node.js from
 nodejs.org, or Python from python.org), and that the alternative is to skip
 installing anything: copy the IDEA.md template from the platform repo and
 paste it into a plain chat AI tool instead, like claude.ai. That path
 doesn't run anything on your computer at all — it will write out your plan
 and your app's files as text for your IT team to build and run from there.
 
-Do not proceed past this point until the runtime check genuinely succeeds —
-never assume or claim it worked.
+Do not proceed past this point until the preflight check genuinely
+succeeds — never assume or claim it worked.
+
+### If this is a sandbox environment (Daytona, TrueForge, or similar)
+
+`preflight-check.sh` treats an ephemeral automation sandbox (a container
+spun up specifically to run this generation task) differently from a
+person's own machine, because there's no one present in a sandbox pipeline
+to act on "please go install Node.js yourself" the way a project leader
+can. It detects this via `is_ephemeral_sandbox()` — env vars matching
+`DAYTONA_*`/`CODESPACE_*`/`GITPOD_*`/`CODESANDBOX_*`/`E2B_*`, `/.dockerenv`,
+or a container-flavored `/proc/1/cgroup` — and, only when one of those
+fires, attempts to install Node.js itself from Node's own official binary
+release (checksum-verified against nodejs.org's published
+`SHASUMS256.txt`, never a third-party script) before giving up. Node/npm
+installed this way are also symlinked into `/usr/local/bin` so every later
+shell command in the same sandbox session finds them too, not just the
+process that ran the install — this matters because most agent harnesses
+run each shell command in its own fresh process with no inherited
+environment, so a plain `export PATH=` inside `preflight-check.sh` alone
+would never have reached a later, separate `npm install` call.
+
+If `preflight-check.sh` still fails after that, the report tells you which
+of these you hit and what to do about each:
+
+- **The self-install itself failed.** The report's `WARN:` lines say why —
+  almost always nodejs.org being unreachable from that sandbox's network,
+  or an unsupported OS/architecture (only Linux x64/arm64 is supported;
+  Python has no equivalent official portable tarball, so a worker app in a
+  sandbox without `apt-get`+root for Python falls straight to this). This
+  is a platform/network-config problem for whoever manages the sandbox's
+  egress rules — not something a re-run fixes.
+- **This platform's sandbox wasn't detected as one at all.** If Node/npm
+  work fine in an interactive terminal on the same sandbox but
+  `preflight-check.sh` still reported it as a "person's own machine" (no
+  self-install attempted), the env-var heuristic above didn't match this
+  particular platform. Two things to do: (1) re-run with
+  `UAB_FORCE_SANDBOX=1` set to force the self-install path immediately, and
+  (2) find out what this platform actually injects — run `env | sort` in
+  that same sandbox and look for anything platform-specific (its own name,
+  a workspace/session ID) — so the detection list above can be extended to
+  recognize it automatically next time.
+- **Registry/network unreachable but Node itself is fine.**
+  `preflight-check.sh` also probes `registry.npmjs.org` / `pypi.org`
+  directly, separate from the binary-presence/install check — a sandbox
+  can have a perfectly working Node/npm and still fail every install
+  because of an egress allowlist or missing proxy config. This is a
+  network/platform-config fix, not a Node-install problem, and self-install
+  can't do anything about it.
+
+### If a command times out mid-verify (e.g. "command execution timeout" on `npm install`)
+
+This is the sandbox harness's OWN per-command wall-clock limit killing the
+shell call, not `npm`/`pip` reporting a real failure — some sandboxes
+(confirmed on TrueForge's Daytona-backed sandbox) enforce a ceiling that a
+cold, large dependency install can still exceed even though `verify-web-
+app.sh` / `verify-worker-app.sh` no longer run a build or start the app
+(that used to be the far more common cause of this, and is why those
+scripts were trimmed down to install + audit + the mechanical checklist
+only — see `SKILL.md`'s Verify step). The fix is `scripts/bg-run.sh` /
+`scripts/bg-status.sh` — run the slow command detached and poll it in
+small, cheap, separate calls instead of one call that has to finish inside
+the timeout window. Do not: retry the same blocking call hoping it's
+faster this time, run steps "manually" to dodge the timeout without
+backgrounding them, or guess that an install probably succeeded because it
+got partway through before being killed. And never reintroduce a build or
+a running dev server into this verify step to "double-check" it — that
+reopens the exact timeout this section describes; building and running the
+app is intentionally left for actual deployment time.
+
+If none of `preflight-check.sh`'s own `WARN:`/report lines are visible to
+you — only a paraphrased "Node.js is not installed" summary — that's this
+skill's plain-language persona (see `SKILL.md`) hiding the technical detail
+from what it assumes is a non-technical project leader. If you're
+debugging the pipeline itself rather than acting as that project leader,
+ask directly for the script's raw, unparaphrased stdout, or run
+`scripts/preflight-check.sh web` (or `worker`) yourself in a raw terminal
+into the sandbox if the platform exposes one.
 
 ## If no archiving tool is available for packaging
 

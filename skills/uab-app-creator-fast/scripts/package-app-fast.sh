@@ -1,42 +1,32 @@
 #!/usr/bin/env bash
 # Zips the generated app so it can be handed to the project leader as a
-# single downloadable file. Run from the generated app's repo root, after
-# verification (verify-web-app.sh / verify-worker-app.sh) has passed.
+# single downloadable file. Run from the generated app's repo root.
 #
-# Refuses to run at all unless .verify/PASSED exists AND its recorded hash
-# matches the CURRENT source (see _verify_hash.sh) — this is what makes
-# "never package before verification passes" an enforced gate instead of a
-# rule a model has to remember and self-report honestly. A fix made after
-# the last successful verify run, however small, invalidates the marker
-# and blocks packaging until the matching verify script is re-run.
+# This is the fast/POC counterpart to uab-app-creator's scripts/
+# package-app.sh — deliberately has NO verification gate. This skill never
+# runs npm/pip, never installs, audits, builds, or checks the generated
+# app in any way (see SKILL.md for why), so there is no .verify/PASSED
+# marker to require here. It just archives whatever source files were
+# generated. Never use this for real project work — only for the fast,
+# explicitly-unverified POC/demo path this skill exists for.
 #
 # Excludes anything reinstallable or local-only: dependency folders, build
-# output, local data fallbacks, the verification marker itself, and any
-# real secrets in .env.local — none of that belongs in a handoff zip. Tries,
-# in order, whatever archiving tool is actually available on this machine:
-# zip, PowerShell's Compress-Archive (Windows), then Python's stdlib
-# zipfile module. Fails with a clear message rather than silently producing
-# an empty or partial archive. After packaging, spot-checks the zip's own
-# contents for anything that should never have made it in.
+# output, local data fallbacks, and any real secrets in .env.local — none
+# of that belongs in a handoff zip. Most of these won't actually exist
+# (nothing was ever installed or run), but the exclusions are kept
+# defensive in case this code is later run through uab-app-creator's full
+# flow, or by hand, before being packaged again. Tries, in order, whatever
+# archiving tool is actually available on this machine: zip, PowerShell's
+# Compress-Archive (Windows), then Python's stdlib zipfile module. Fails
+# with a clear message rather than silently producing an empty or partial
+# archive. After packaging, spot-checks the zip's own contents for
+# anything that should never have made it in.
 set -uo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=_verify_hash.sh
-source "$SCRIPT_DIR/_verify_hash.sh"
 
 fail() {
   echo "FAIL: $1"
   exit 1
 }
-
-echo "== checking verification marker =="
-[ -f .verify/PASSED ] || fail "no .verify/PASSED marker found — run scripts/verify-web-app.sh or scripts/verify-worker-app.sh (whichever matches this app) and confirm it passes before packaging"
-RECORDED_HASH="$(grep '^hash=' .verify/PASSED | cut -d= -f2)"
-CURRENT_HASH="$(compute_source_hash)" || fail "could not compute a verification hash — see the error above"
-if [ "$RECORDED_HASH" != "$CURRENT_HASH" ]; then
-  fail "source has changed since the last successful verification (recorded hash ${RECORDED_HASH:-<none>}, current $CURRENT_HASH) — re-run the matching verify script before packaging. This is what stops a fix made after verification from shipping unverified."
-fi
-echo "PASS: verification marker is fresh (verified $(grep '^verified_at=' .verify/PASSED | cut -d= -f2))"
 
 APP_DIR="$(pwd)"
 APP_NAME="$(basename "$APP_DIR")"
@@ -45,7 +35,8 @@ OUT_ZIP="${APP_NAME}.zip"
 # Everything in this list is either reinstallable (node_modules, .venv,
 # __pycache__, build output) or must never leave this machine (.env.local
 # real secrets, local SQLite/file-storage data). .env.template ships fine —
-# it's variable names and comments only, no real values.
+# it's variable names and comments only, no real values. .verify/ is
+# excluded defensively even though this skill never writes it itself.
 EXCLUDES=(
   "node_modules/*" "*/node_modules/*"
   ".next/*" "*/.next/*"
@@ -59,7 +50,7 @@ EXCLUDES=(
   "${OUT_ZIP}"
 )
 
-echo "== packaging ${APP_DIR} into ${OUT_ZIP} =="
+echo "== packaging ${APP_DIR} into ${OUT_ZIP} (fast path — nothing was installed, audited, or built) =="
 rm -f "$OUT_ZIP"
 
 if command -v zip >/dev/null 2>&1; then
@@ -130,3 +121,4 @@ else
 fi
 
 echo "PASS: wrote $(pwd)/${OUT_ZIP}"
+echo "NOTE: this zip is UNVERIFIED — dependencies were never installed, audited, or built. See SKILL.md's report-back step for what to tell the project leader."

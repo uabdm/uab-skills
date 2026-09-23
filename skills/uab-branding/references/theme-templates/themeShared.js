@@ -84,6 +84,23 @@ export const reducedMotionCssBaseline = {
 export const fontHeading = "'kulturista-web', sans-serif";
 export const fontBody = "'proxima-nova', 'Helvetica', 'Arial', sans-serif";
 
+// fontSize/lineHeight/letterSpacing below are copied verbatim from the
+// portal's typography block (identical in LightTheme.js and DarkTheme.js —
+// only color differs between the two, and color is handled via
+// palette.text.primary now, not per-variant here). This is NOT optional
+// decoration: every one of these variants is wrapped in MUI's
+// `responsiveFontSizes()` by LightTheme.js/DarkTheme.js (matching the
+// portal's own theme.js -> getTheme()), and responsiveFontSizes() scales
+// UP from whatever base fontSize a variant has. Leave fontSize unset here
+// and MUI substitutes its own raw defaults (h1: 6rem, h2: 3.75rem, h3:
+// 3rem, ...) as the base — responsiveFontSizes then scales that already
+// oversized default even larger at wide breakpoints. Confirmed bug: a
+// generated page using `variant="h1"` rendered a ~150px, 3-line-wrapping
+// heading in uab-app-creator-nobrand-hello-world-brand-uabgreen because
+// this block only had fontFamily/fontWeight. A page using a smaller
+// variant (e.g. h4) won't look broken, but it's still silently running on
+// MUI's un-branded size scale rather than the portal's — same "coincidence
+// masks the gap" trap as the missing text.primary bug.
 export const typographyVariants = {
   fontSize: 16,
   htmlFontSize: 16,
@@ -91,18 +108,18 @@ export const typographyVariants = {
   fontWeightRegular: 400,
   fontWeightMedium: 500,
   fontWeightBold: 700,
-  h1: { fontFamily: fontHeading, fontWeight: 600 },
-  h2: { fontFamily: fontBody, fontWeight: 500 },
-  h3: { fontFamily: fontHeading, fontWeight: 600 },
-  h4: { fontFamily: fontBody, fontWeight: 600 },
-  h5: { fontFamily: fontBody, fontWeight: 500 },
-  h6: { fontFamily: fontBody, fontWeight: 600 },
-  subtitle1: { fontFamily: fontBody, fontWeight: 500 },
-  body1: { fontFamily: fontBody, fontWeight: 400 },
-  body2: { fontFamily: fontBody, fontWeight: 400 },
-  button: { fontFamily: fontBody, fontWeight: 400 },
-  caption: { fontFamily: fontBody, fontWeight: 400 },
-  overline: { fontFamily: fontBody, fontWeight: 400 },
+  h1: { fontFamily: fontHeading, fontWeight: 600, fontSize: '2.1rem', lineHeight: 1.3, letterSpacing: '0em' },
+  h2: { fontFamily: fontBody, fontWeight: 500, fontSize: '1.9rem', lineHeight: 1.3, letterSpacing: '0em' },
+  h3: { fontFamily: fontHeading, fontWeight: 600, fontSize: '1.4rem', lineHeight: 1.3 },
+  h4: { fontFamily: fontBody, fontWeight: 600, fontSize: '1.2rem', lineHeight: 1.1, letterSpacing: '0em' },
+  h5: { fontFamily: fontBody, fontWeight: 500, fontSize: '1.05rem', lineHeight: 1.2 },
+  h6: { fontFamily: fontBody, fontWeight: 600, fontSize: '0.89rem', lineHeight: 1.3, letterSpacing: '0em' },
+  subtitle1: { fontFamily: fontBody, fontWeight: 500, fontSize: '0.89rem', lineHeight: 1.3, letterSpacing: '0em' },
+  body1: { fontFamily: fontBody, fontWeight: 400, fontSize: '1.1rem', lineHeight: 1.5, letterSpacing: '0em' },
+  body2: { fontFamily: fontBody, fontWeight: 400, fontSize: '.9rem', lineHeight: 1.5, letterSpacing: '0em' },
+  button: { fontFamily: fontBody, fontWeight: 400, fontSize: '1rem', lineHeight: 1.2, letterSpacing: '0em' },
+  caption: { fontFamily: fontBody, fontWeight: 400, fontSize: '0.8rem', lineHeight: 1.3, letterSpacing: '0em' },
+  overline: { fontFamily: fontBody, fontWeight: 400, fontSize: '0.8rem', lineHeight: 1.4, letterSpacing: '0em' },
 };
 
 // NOTE on TypeScript: these theme files are plain .js, matching the

@@ -22,9 +22,42 @@ font" — don't collapse it back to that.
 Base sizing: `fontSize: 16`, `htmlFontSize: 16`,
 `fontWeightLight/Regular/Medium/Bold: 300/400/500/700`. Wrap the theme in
 MUI's `responsiveFontSizes()` (the portal does this in its top-level
-`getTheme()`) so heading sizes scale down on small viewports — apply this
-in whichever file constructs the final theme object handed to
+`getTheme()` — confirmed at `MyUABPortal/src/theme.js`, which imports the
+already-fully-specified `LightTheme`/`DarkTheme` and only then applies
+`responsiveFontSizes()`) so heading sizes scale down on small viewports —
+apply this in whichever file constructs the final theme object handed to
 `ThemeProvider` (see `theme-templates/themeShared.js`).
+
+**Every variant needs `fontSize`, `lineHeight`, and (where the portal sets
+it) `letterSpacing` explicitly, not just `fontFamily`/`fontWeight`.** This
+is the exact numeric table below — copy it into
+`theme-templates/themeShared.js`'s `typographyVariants`, don't summarize it
+as "use the portal's sizes" and let a future edit re-derive approximate
+values. `responsiveFontSizes()` computes its scaled sizes *from* whatever
+base `fontSize` a variant has — if a variant has no `fontSize` set, MUI
+substitutes its own raw default (`h1: '6rem'`, `h2: '3.75rem'`, `h3:
+'3rem'`, ...), and `responsiveFontSizes()` then scales that already-huge
+default even larger at wide breakpoints. Confirmed bug: a generated page
+using `variant="h1"` rendered a ~150px, 3-line heading because
+`typographyVariants` had fontFamily/fontWeight only. A variant like `h4`
+won't look broken with sizes missing (MUI's raw h4 default is close-ish to
+the portal's), which is exactly what let this ship unnoticed — always
+verify against this table, not against "does it look roughly OK."
+
+| Variant | `fontSize` | `lineHeight` | `letterSpacing` |
+|---|---|---|---|
+| `h1` | `2.1rem` | `1.3` | `0em` |
+| `h2` | `1.9rem` | `1.3` | `0em` |
+| `h3` | `1.4rem` | `1.3` | *(portal doesn't set one)* |
+| `h4` | `1.2rem` | `1.1` | `0em` |
+| `h5` | `1.05rem` | `1.2` | *(portal doesn't set one)* |
+| `h6` | `0.89rem` | `1.3` | `0em` |
+| `subtitle1` | `0.89rem` | `1.3` | `0em` |
+| `body1` | `1.1rem` | `1.5` | `0em` |
+| `body2` | `.9rem` | `1.5` | `0em` |
+| `button` | `1rem` | `1.2` | `0em` |
+| `caption` | `0.8rem` | `1.3` | `0em` |
+| `overline` | `0.8rem` | `1.4` | `0em` |
 
 ## Font loading — the real, working Typekit link
 

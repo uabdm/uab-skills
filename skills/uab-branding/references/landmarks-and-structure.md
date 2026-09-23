@@ -12,7 +12,7 @@ ad hoc, and never left as a bare `<div>`/`<Box>` with no `component=`.
 |---|---|
 | Header | `<AppBar component="header" position="fixed" ...>` |
 | Main content | `<Box component="main" role="main" id="main-content" tabIndex={-1} ...>` |
-| Nav | `<Box component="nav" aria-label="Primary <app name> navigation" ...>` (or on the `Drawer`'s content wrapper) |
+| Nav | `component="nav"` **and** `aria-label="Primary <app name> navigation"` passed directly as props on the `<Drawer>` itself — never on a wrapping `<Box>` around the `Drawer`. See "Permanent nav must fill full page height" below for why. |
 | Footer | `<Box component="footer" ...>` (already true of `footer-template.md`'s template) |
 
 `role="main"` is redundant with `component="main"` in most browsers but
@@ -24,6 +24,69 @@ generated `AppShell.tsx`: the `AppBar` has no `component="header"`, the
 content `Box` has no `component="main"`, and the nav `List`/`Drawer` has no
 `component="nav"` or `aria-label`) — apply all four explicitly when
 generating a new `AppShell.tsx`.
+
+## Permanent nav must fill full page height, every time, at any content length
+
+A permanent `Drawer` on desktop must visually extend all the way down the
+page — its `background.paper` fill shouldn't stop partway down and expose
+raw `background.default` beneath it, regardless of how few nav items exist
+or how short the page's main content is. Confirmed bug in a generated app
+(`uab-app-creator-nobrand-hello-world-brand-uabgreen`): the nav `Drawer`
+was cut off at the height of its own "Home" list item instead of reaching
+the bottom of the viewport.
+
+Two things are both required, verified directly against
+`@mui/material/Drawer/Drawer.js`:
+
+1. **`component="nav"` goes directly on `<Drawer>`, never on a wrapping
+   `<Box component="nav">` around it.** MUI's `DrawerPaper` has
+   `height: '100%'` baked in unconditionally, and for `variant="permanent"`
+   the docked root (`DrawerDockedRoot`, a `styled('div', ...)`) receives
+   `component`/`aria-label` through its own prop passthrough — so
+   `<Drawer component="nav" aria-label="...">` retags that *same* flex
+   item to `<nav>` without adding an extra element. A `height: 100%` only
+   resolves against a containing block with a *definite* computed height.
+   If you instead wrap `Drawer` in `<Box component="nav">`, that Box (not
+   the Drawer) becomes the flex item that gets stretched by the row's
+   `align-items: stretch` — the Drawer inside it is just a plain block
+   child with no stretch of its own, so its `height: 100%` resolves
+   against the Box's *content* height, not the stretched height, and the
+   Drawer silently shrinks back to fitting only its own items.
+2. **The row containing the `Drawer` and the main-content `Box` needs
+   `flexGrow: 1`** (on top of `display: 'flex'`), and that row must itself
+   be a child of an outer `Box` with `display: 'flex', flexDirection:
+   'column', minHeight: '100vh'`. Without `flexGrow: 1` on the row, the row
+   only grows to fit its content's natural height instead of stretching to
+   fill the remaining viewport — so even a correctly-placed `component="nav"`
+   Drawer only stretches to match a short main-content column instead of
+   the full page. This same `flexGrow: 1` is also what pins the footer to
+   the bottom of the viewport on short pages (a sticky-footer side effect,
+   not a separate rule).
+
+```tsx
+// Correct — Drawer is the direct flex child, row has flexGrow: 1.
+<Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+  {/* skip link, AppBar (position="fixed", out of flow) */}
+  <Box sx={{ display: 'flex', flexGrow: 1, mt: 8 }}>
+    <Drawer
+      component="nav"
+      aria-label="Primary <app name> navigation"
+      variant={isDesktop ? 'permanent' : 'temporary'}
+      sx={{
+        width: drawerWidth,
+        flexShrink: 0,
+        '& .MuiDrawer-paper': { width: drawerWidth, boxSizing: 'border-box', position: 'static' },
+      }}
+    >
+      {navContent}
+    </Drawer>
+    <Box component="main" role="main" id="main-content" tabIndex={-1} sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ flexGrow: 1, p: 3 }}>{children}</Box>
+      <Footer />
+    </Box>
+  </Box>
+</Box>
+```
 
 ## Skip link (WCAG 2.1 AA, SC 2.4.1 Bypass Blocks)
 
@@ -94,3 +157,9 @@ all.
   for a `href="#main-content"` skip link as the first rendered element.
 - Grep every page/route's top-level `Typography` for a `component="h1"` —
   flag a page with no `<h1>` at all, or more than one.
+- `component="nav"` must be a prop directly on `<Drawer ...>`, not on a
+  `<Box component="nav">` wrapping it — grep for `<Box component="nav"` in
+  `AppShell.tsx` and flag it as a fail (it breaks the permanent Drawer's
+  full-height fill; see "Permanent nav must fill full page height" above).
+  Also confirm the row `Box` holding the `Drawer` and main-content `Box`
+  has `flexGrow: 1` in its `sx`, not just `display: 'flex'`.

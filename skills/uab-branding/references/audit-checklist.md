@@ -27,25 +27,37 @@ important gaps first.
    fail even though the same check in dark mode would coincidentally
    pass — see the `text.primary` decision record in
    [`palette.md`](palette.md).
+7. No `Typography`/text element styled `color: 'primary.main'`,
+   `color="primary"`, `color: 'secondary.main'`, or `dragonGreen.main`
+   sits inside a `Paper`, `Card`, `Dialog`, or anything else resolving to
+   `background.paper`. In dark mode `background.paper` **equals**
+   `primary.main` (`#1A5632`) — text colored that way is ~1:1 contrast
+   against it, effectively invisible (confirmed bug — see the
+   `primary.main` decision record in [`palette.md`](palette.md)). Check
+   **dark mode specifically**; light mode's white `background.paper` hides
+   this completely. Grep for `color:\s*['"]primary` and `color="primary"`
+   and check each hit's surrounding container. The fix is to remove the
+   override and let the text inherit `text.primary` (already correctly
+   branded per mode), not to swap in a different hardcoded color.
 
 ## WCAG — focus & motion ([`focus-and-motion.md`](focus-and-motion.md))
 
-7. Focus-ring overrides exist for `MuiButtonBase` (`.Mui-focusVisible`),
+8. Focus-ring overrides exist for `MuiButtonBase` (`.Mui-focusVisible`),
    `MuiInputBase` (`:focus-within`), and `MuiLink` (`:focus-visible`), each
    a solid outline (not just a color/box-shadow change) with an offset.
-8. No `outline: none`/`outline: 0` anywhere without an immediately
+9. No `outline: none`/`outline: 0` anywhere without an immediately
    adjacent replacement outline on the same selector.
-9. `prefers-reduced-motion: reduce` is handled globally (`*, *::before,
-   *::after` or equivalently broad), not scoped to a single element.
+10. `prefers-reduced-motion: reduce` is handled globally (`*, *::before,
+    *::after` or equivalently broad), not scoped to a single element.
 
 ## WCAG — structure ([`landmarks-and-structure.md`](landmarks-and-structure.md))
 
-10. Header uses `component="header"`; main content uses `component="main"`
+11. Header uses `component="header"`; main content uses `component="main"`
     with `id="main-content"` and `tabIndex={-1}`; nav uses `component="nav"`
     with an `aria-label`, passed **directly as props on `<Drawer>`** (not
-    on a wrapping `<Box component="nav">` — see item 11); footer uses
+    on a wrapping `<Box component="nav">` — see item 12); footer uses
     `component="footer"`.
-11. A permanent desktop nav `Drawer` fills the full page height, no matter
+12. A permanent desktop nav `Drawer` fills the full page height, no matter
     how few nav items exist or how short the page content is — its
     `background.paper` fill shouldn't stop partway down and expose
     `background.default` underneath. Fail if: (a) `<Box component="nav">`
@@ -56,51 +68,51 @@ important gaps first.
     full page height" in
     [`landmarks-and-structure.md`](landmarks-and-structure.md) for the
     exact mechanism.
-12. A skip-to-content link (`href="#main-content"`) is the first rendered
+13. A skip-to-content link (`href="#main-content"`) is the first rendered
     element in the app shell, visually hidden until keyboard-focused.
-13. Every page has exactly one `component="h1"` — check the top-level
+14. Every page has exactly one `component="h1"` — check the top-level
     `Typography` on each route; flag zero or more than one.
 
 ## WCAG — ARIA / interaction ([`aria-patterns.md`](aria-patterns.md), [`color-and-status.md`](color-and-status.md))
 
-14. Every icon-only `IconButton`/similar control has `aria-label` directly
+15. Every icon-only `IconButton`/similar control has `aria-label` directly
     on the control (not only inside a `Tooltip`), and its icon (if
     decorative) has `aria-hidden="true"`.
-15. Menu-trigger controls carry `aria-controls`/`aria-haspopup`/`aria-expanded`.
-16. Async loading/error states use `role="status"`/`role="alert"`
+16. Menu-trigger controls carry `aria-controls`/`aria-haspopup`/`aria-expanded`.
+17. Async loading/error states use `role="status"`/`role="alert"`
     appropriately, not silent or purely-visual state changes.
-17. Any status/state conveyed by color also carries a distinct icon shape
+18. Any status/state conveyed by color also carries a distinct icon shape
     and/or visible text — no color-only indicators.
 
 ## WCAG — forms ([`forms.md`](forms.md))
 
-18. Every text/select field has a real `label` (not a placeholder standing
+19. Every text/select field has a real `label` (not a placeholder standing
     in for one).
-19. Every `Checkbox`/`Radio` is wrapped in `FormControlLabel` for its
+20. Every `Checkbox`/`Radio` is wrapped in `FormControlLabel` for its
     accessible name, not given a non-functional `label` prop directly on
     the control.
-20. Fields with validation use `error` + `helperText` + a matching
+21. Fields with validation use `error` + `helperText` + a matching
     `aria-describedby`, not a bare red border with no text explanation.
 
 ## Branding — logo, footer, fonts
 
-21. Top nav logo: a plain `<img>` (never `next/image`), `height: 'auto'`,
+22. Top nav logo: a plain `<img>` (never `next/image`), `height: 'auto'`,
     descriptive `alt` text, no dark-mode swap — [`logo-usage.md`](logo-usage.md).
-22. Footer link set matches exactly (or, for an app that predates this
+23. Footer link set matches exactly (or, for an app that predates this
     skill, is at least internally consistent and not missing the
     Nondiscrimination Statement) — [`footer-template.md`](footer-template.md).
-23. Nondiscrimination Statement dialog text matches verbatim, not
+24. Nondiscrimination Statement dialog text matches verbatim, not
     paraphrased or shortened.
-24. The `Typography` inside `DialogTitle` does NOT have `component="h2"`
+25. The `Typography` inside `DialogTitle` does NOT have `component="h2"`
     — `DialogTitle` already renders `<h2>` internally, so a nested one is
     invalid HTML and throws a hydration error the moment the dialog opens
     (confirmed bug — see [`footer-template.md`](footer-template.md)). Grep
     for `<DialogTitle` in the app and check every `Typography` inside it.
-25. Typography: headings use the display face (h1/h3), body/UI text uses
+26. Typography: headings use the display face (h1/h3), body/UI text uses
     the body face with a real fallback stack, per
     [`typography.md`](typography.md) — check the theme's `typography`
     block, not just that *some* custom font is referenced somewhere.
-26. Typography sizing: every variant in the theme's `typography` block has
+27. Typography sizing: every variant in the theme's `typography` block has
     an explicit `fontSize` matching [`typography.md`](typography.md)'s
     table — not just `fontFamily`/`fontWeight`. Fail if `h1`'s computed
     size is anywhere near MUI's raw default (`6rem`/96px) instead of the
@@ -119,4 +131,4 @@ For each numbered item, one line: pass/fail/n/a, file:line, one-sentence
 reason if it's a fail. Close with a short prose summary grouping "got it
 right" vs. "fell short," same shape used for the
 `timeoff-demo-app-slim-litelllm` audit this checklist was built from —
-don't just dump the 26-line checklist and stop, synthesize it.
+don't just dump the 27-line checklist and stop, synthesize it.

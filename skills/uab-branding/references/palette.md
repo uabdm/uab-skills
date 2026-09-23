@@ -121,6 +121,46 @@ bronze: { main: '#c67d30' }
 generic generated app; include them only if the app leader specifically
 describes an awards/recognition/leaderboard feature.
 
+## Decision record (2026-09-23, `primary.main` as text color on `Paper`)
+
+Found via a user report: a generated app's dark-mode homepage had two
+pieces of "emphasis" text that were nearly invisible — a page heading and
+a big reveal-text box, both explicitly styled `sx={{ color:
+'primary.main' }}`, both sitting inside a `Paper`. Confirmed in
+`uab-app-creator-qa-skill`'s `page.tsx`.
+
+Root cause: `background.paper` is `#1A5632` in dark mode — **the exact
+same value as `primary.main`** (see the trimmed-core-set table above,
+"paper == primary.main in dark mode"). That's an intentional, already-
+documented design choice (a bold, fully-green card look), but nothing
+previously connected it to the obvious consequence: **any text explicitly
+colored `primary.main` (or `color="primary"`) that sits on a `Paper`,
+`Card`, `Dialog`, or anything else resolving to `background.paper` will
+have ~1:1 contrast against it in dark mode** — not just low contrast,
+functionally invisible. Light mode doesn't expose this (`background.paper`
+is white there, so green text reads fine), which is the same "one mode
+hides the bug" trap as the `text.primary` decision record above — always
+check dark mode specifically for any component styled with a green-family
+color token.
+
+This isn't limited to `primary.main` — `secondary.main`/`dragonGreen`
+(`#033319`) is also a dark green with the same risk of collapsing against
+a dark green surface, just not identical to `background.paper` so slightly
+less catastrophic, not meaningfully safer.
+
+**Fix / rule:** don't hardcode a color on `Typography` text that needs to
+stay legible on `Paper` in both modes — leave `color` unset and let it
+inherit `text.primary`, which is already the correct branded color for
+whichever mode is active (`#1A5632` in light, `#fff` in dark — see the
+`text.primary` decision record above). That's the fix applied in
+`uab-app-creator-qa-skill`: both `sx={{ color: 'primary.main' }}`
+overrides were simply removed, not replaced with another color. If a
+component genuinely needs an accent color distinct from body text (not
+just "make this text green for emphasis"), reach for `campusGreen.main`
+(`#90D408`) or `trustTeal.main` (`#68C6B8`) instead — both are far enough
+from `background.paper`'s dark green in dark mode to stay legible — never
+`primary`/`secondary`/`dragonGreen` for text-on-`Paper`.
+
 ## Never hardcode a brand hex in a component
 
 Any `sx`/style prop using a UAB color must reference `theme.palette.*`,

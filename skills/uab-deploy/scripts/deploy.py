@@ -589,10 +589,31 @@ def pr_body(app_name: str, qa_status: str, skipped_binary, stale) -> str:
 
 async def open_pull_request(gh: GitHubTools, owner: str, repo: str, branch: str, base: str,
                             title: str, body: str):
-    pr = await gh.call_with_retries(CREATE_PULL_REQUEST_TOOL, {
+    """Returns create_pull_request's answer as-is (a dict or text) -- see pr_link()."""
+    return await gh.call_with_retries(CREATE_PULL_REQUEST_TOOL, {
         "owner": owner, "repo": repo, "title": title, "head": branch, "base": base, "body": body,
     })
-    return pr if isinstance(pr, dict) else {}
+
+
+_PR_WEB_URL = re.compile(r"https://github\.com/[^/\s\"']+/[^/\s\"']+/pull/\d+")
+
+
+def pr_link(pr, owner: str, repo: str):
+    """
+    The PR's web link from whatever a PR tool returned. list_pull_requests
+    gives REST objects (`html_url`); create_pull_request on GitHub's MCP
+    server answers with a minimal `{id, url}` where `url` is the web link
+    (seen live 2026-10-08) -- a REST `url` would be an api.github.com one.
+    """
+    if isinstance(pr, dict):
+        for key in ("html_url", "url"):
+            m = _PR_WEB_URL.search(str(pr.get(key) or ""))
+            if m:
+                return m.group(0)
+        if pr.get("number"):
+            return f"https://github.com/{owner}/{repo}/pull/{pr['number']}"
+    m = _PR_WEB_URL.search(json.dumps(pr) if isinstance(pr, (dict, list)) else str(pr))
+    return m.group(0) if m else None
 
 
 # --- sync: restore the app FROM GitHub ------------------------------------------
@@ -952,13 +973,21 @@ async def run() -> int:
             pr_status = "unavailable"
             print("skipped — pull request tools aren't available on this connector")
         elif mode == "reuse" and open_pr is not None:
-            pr_url, pr_status = open_pr.get("html_url"), "existing"
+            pr_url, pr_status = pr_link(open_pr, owner, repo), "existing"
         else:
             try:
                 pr = await open_pull_request(
                     gh, owner, repo, deploy_branch, args.target_branch, commit_message,
                     pr_body(app_name, args.qa_status, skipped_binary, stale))
-                pr_url, pr_status = pr.get("html_url"), "opened"
+                pr_url, pr_status = pr_link(pr, owner, repo), "opened"
+                if pr_url is None:
+                    # Opened, but the answer had no link in it: look it up instead.
+                    try:
+                        found = await pull_requests_for(gh, owner, repo, deploy_branch)
+                    except McpError:
+                        found = []
+                    opened = next((p for p in found if p.get("state") == "open"), None)
+                    pr_url = pr_link(opened, owner, repo) if opened else None
             except McpError as exc:
                 pr_status = "not-opened"
                 print(f"PR_NOT_OPENED: the push succeeded, but opening the pull request failed: {exc}")
@@ -966,6 +995,9 @@ async def run() -> int:
             print(f"PR: {pr_url} ({pr_status})")
             new_state["pr"] = {"url": pr_url}
             save_state(state_path, new_state)
+        elif pr_status in ("opened", "existing"):
+            print(f"PR: {pr_status}, but its link couldn't be read — see the repository's "
+                  f"Pull requests tab (branch '{deploy_branch}')")
 
     except DeployStop as stop:
         print(f"FAIL: {stop.code} — {stop}", file=sys.stderr)

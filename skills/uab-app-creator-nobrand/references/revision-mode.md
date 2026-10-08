@@ -102,8 +102,16 @@ the first time) — newest entry last, plain English, no file paths:
 For a feature-level change, write the entry at the approval stop with
 **Status:** "Waiting for approval", and update it to "Changed — not yet
 tested" once you've made the edits. `uab-app-qa` and `uab-deploy` don't
-edit `PLAN.md`; the orchestrating process updates the status line after
-they run ("Tested", "Sent for review: <pull request link>").
+edit `PLAN.md`; the orchestrating process sets the status to **"Tested —
+sent for review"** after QA passes and **before** the push, so the entry
+travels in the same commit as the change.
+
+Never record the pull request link in `PLAN.md`, and never push again
+just to update `PLAN.md` — each push is a commit on the pull request. The
+link belongs in the reply to the project leader.
+
+There's no `## Change history` section after the first build — it starts
+with the first revision.
 
 ## 6. Report back
 

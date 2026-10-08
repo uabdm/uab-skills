@@ -40,17 +40,21 @@ Mode's bridged `mcp_client.call_tool(server_name, tool_name, body={...})`
 — the call runs from inside this sandbox, but the harness applies the
 connector's stored credentials on the other end; **the sandbox never
 holds the token**. The only thing this skill needs to know is the
-connector's *name* (`--mcp-server-name`, default `github`) — not secret,
-just an address.
+connector's *name* (`--mcp-server-name`, default `bifrost` — the Bifrost
+MCP gateway connector) and the prefix the gateway puts on GitHub's tool
+names (`--tool-prefix`, default `github-`). Neither is secret, just an
+address. With a direct GitHub connector instead, pass
+`--mcp-server-name=github`; the script falls back to the bare tool names
+automatically.
 
-**This mechanism has real unconfirmed details** — exact MCP tool names,
-whether the push tool accepts binary content, whether `scripts/deploy.py`
-can be run as a checked-in file versus needing its source passed inline
-to Code Mode, and the exact shape of a failure. All of this is listed,
-prominently, in `references/mcp-mechanism.md` and at the top of
-`scripts/deploy.py` itself — verify each item against a live, configured
-connector (Code Mode's `get_tool_output_schema` helps here) before
-trusting this in production.
+**Verified against the live GitHub MCP server (2026-10-08):** the tool
+names and parameters `scripts/deploy.py` uses, and that the push tool
+carries **text only** — binary files (images, fonts, ...) are skipped and
+reported, never pushed (see step e). Two details are still unconfirmed:
+whether `scripts/deploy.py` can be run as a checked-in file versus needing
+its source passed inline to Code Mode, and the exact Python shape of
+`call_tool`'s results and failures (handled defensively). Both are listed
+in `references/mcp-mechanism.md` and at the top of `scripts/deploy.py`.
 
 ## Invocation contract
 
@@ -71,8 +75,14 @@ Skill(uab-deploy, args: "--repo-url=https://github.com/org/repo.git
 - `--source-dir=<path>` (**required**) — absolute path to the generated
   app's root, already on disk in this sandbox. Nothing is re-downloaded
   or re-unzipped.
-- `--mcp-server-name=<name>` (optional, default `github`) — the name this
-  GitHub MCP connector was given in TrueForge's `Settings → Connectors`.
+- `--mcp-server-name=<name>` (optional, default `bifrost`) — the name the
+  connector that carries GitHub's tools was given in TrueForge's
+  `Settings → Connectors`: the Bifrost MCP gateway (`bifrost`), or a direct
+  GitHub connector (e.g. `github`).
+- `--tool-prefix=<prefix>` (optional, default `github-`) — the prefix the
+  gateway puts on GitHub's tool names (`github-push_files`). The bare name
+  is tried automatically if the prefixed one doesn't exist, so this rarely
+  needs changing.
 - `--app-name=<slug>` (optional, default: derived from `--source-dir`'s
   folder name) — used to derive the deploy branch name and default
   commit message.
@@ -98,32 +108,38 @@ Work through these steps in order, every time, via `scripts/deploy.py`
 `package.json`, or `requirements.txt`/`pyproject.toml` present). Fail
 loudly and stop before any MCP call on anything missing or malformed.
 
-**b. Ensure the repo exists.** Call the connector's repo-creation tool
-with `auto_init` so a brand-new repo has an initial commit to branch
-from. Treat "already exists" as success, not failure, and continue.
+**b. Ensure the repo exists.** List its branches (`list_branches`): if
+the repo answers, it exists — continue. If it's not found, create it
+(`create_repository` with `autoInit`, so a brand-new repo has an initial
+commit to branch from; `organization` is set when the owner isn't the
+connector's own account, looked up with `get_me`).
 
-**c. Resolve `--target-branch`'s tip commit.** If the repo was just
-created and its actual default branch name doesn't match
-`--target-branch` (GitHub defaults new repos to `main`; the caller may
-have asked for `develop`), create `--target-branch` from the default
-branch's tip first — never silently substitute one branch for the other.
+**c. Resolve `--target-branch`.** It must appear in the branch list. If
+the repo was just created and its actual default branch name doesn't
+match `--target-branch` (GitHub defaults new repos to `main`; the caller
+may have asked for `develop`), create `--target-branch` from the default
+branch first — never silently substitute one branch for the other.
 
 **d. Determine the deploy branch.** `--deploy-branch-name` if given,
-else `deploy/<app-slug>`. Look it up: already exists → this is a re-run
-for this app (reuse it). Otherwise → create it from `--target-branch`'s
-tip (first deploy for this app).
+else `deploy/<app-slug>`. Look it up in the branch list: already exists →
+this is a re-run for this app (reuse it). Otherwise → create it from
+`--target-branch` (`create_branch` with `from_branch`; first deploy for
+this app).
 
 **e. Collect the generated app's files.** Walk `--source-dir`, excluding
 exactly the categories `uab-app-creator-nobrand`'s `package-app-fast.sh`
 already excludes: `node_modules/`, `.next/`, `.venv/`, `__pycache__/`,
 `.data/`, `.localstorage/`, `.git/`, `.verify/`, `.env`, `.env.local`.
 (`.gitignore` itself is a normal file and IS collected — only the `.git/`
-directory is excluded.)
+directory is excluded.) **Binary files are not pushed:** the push tool
+only carries UTF-8 text, so any file that isn't valid UTF-8 text (images,
+fonts, ...) is skipped and listed in the script's `SKIPPED_BINARY:` line
+for the report.
 
 **f. Push as a single commit.** One call to the connector's push tool
-with every collected file, targeting the deploy branch. This is
-inherently additive/overwrite-only for the paths given — never deletes
-or mirror-prunes anything else already in the target repo.
+(`push_files`) with every collected text file, targeting the deploy
+branch. This is inherently additive/overwrite-only for the paths given —
+never deletes or mirror-prunes anything else already in the target repo.
 
 **g. Report back.** See "Report back" below.
 
@@ -198,20 +214,24 @@ plainly — it's a bigger action than a normal push); the `--qa-status`
 value as given, with an explicit "not confirmed to build/run/pass QA in
 a real environment" caveat whenever it isn't `passed` — say this
 plainly, not buried, the same register `uab-app-creator-nobrand` uses
-for "the output is unverified"; and a closing line that nothing beyond
-this happened (no hosting, no pipeline, no other infrastructure).
+for "the output is unverified"; if the script reported `SKIPPED_BINARY`,
+list those files plainly as **not pushed** (they need adding to the
+branch separately); and a closing line that nothing beyond this happened
+(no hosting, no pipeline, no other infrastructure).
 
 **On failure:** state plainly that the push did not succeed and exactly
 how far it got; the plain-language failure category (connector not
-configured, permission/scope, branch diverged) and one concrete next
+configured, GitHub tools not found on the connector, permission/scope,
+branch diverged) and one concrete next
 step; and explicit confirmation that nothing destructive was attempted
 and the target repo's real branches are untouched.
 
 ## Reference index
 
 - `references/mcp-mechanism.md` — the Code Mode / `mcp_client.call_tool`
-  mechanism in full, the list of details that still need verification
-  against a live connector, and the `require_approval_for_tools` caveat.
+  mechanism in full, the verified GitHub tool names and parameters, the
+  details that still need verification, and the
+  `require_approval_for_tools` caveat.
 - `references/branch-and-commit-strategy.md` — the `deploy/<app-slug>`
   derivation rule, idempotent re-run behavior, the file-collection
   exclude list, and the failure matrix.

@@ -37,10 +37,11 @@ than a commit buried in the target branch's own history.
 
 Re-invoking `uab-deploy` for the same app (e.g. after a revision):
 
-1. Look up whether the deploy branch already exists (`get_branch`-style
-   call). If it does, this is a re-run — reuse it as-is, don't recreate it
-   from `--target-branch`'s current tip (that would silently drop
-   whatever's already on the deploy branch).
+1. Look up whether the deploy branch already exists (in the repo's
+   `list_branches` result — there is no single-branch lookup tool). If it
+   does, this is a re-run — reuse it as-is, don't recreate it from
+   `--target-branch`'s current tip (that would silently drop whatever's
+   already on the deploy branch).
 2. Collect the current `--source-dir` contents and push them as a new
    commit via the push tool, targeting the existing deploy branch.
 
@@ -54,9 +55,10 @@ bug a `--force` flag would cause is structurally absent, not just
 prohibited by convention.
 
 If the deploy branch does **not** yet exist, this is the first deploy for
-this app: create it from `--target-branch`'s tip commit SHA (resolved via
-`get_branch`, with the fresh-repo edge case handled in `SKILL.md`'s deploy
-flow step 3), then push the first commit to it.
+this app: create it from `--target-branch` (`create_branch` with
+`from_branch: <target-branch>` — the tool branches from a branch name, not
+a SHA; the fresh-repo edge case is handled in `SKILL.md`'s deploy flow
+step c), then push the first commit to it.
 
 ## File-collection exclude list
 
@@ -81,6 +83,13 @@ git metadata, if any exists — `uab-app-creator-nobrand` never runs git,
 so in practice there normally isn't one, but exclude it defensively
 regardless).
 
+**Binary files are collected but not pushed.** The push tool carries
+UTF-8 text only (see `references/mcp-mechanism.md`), so any file that
+isn't valid UTF-8 text — images, fonts, other binary assets — is left out
+of the commit and listed on the script's `SKIPPED_BINARY:` line. The
+report names those files so someone can add them to the deploy branch
+separately.
+
 Collection (and the push tool it feeds) is **additive/overwrite only**:
 files already in the target repo's destination path that this run's file
 list doesn't itself include are left alone. `uab-deploy` never mirrors,
@@ -104,5 +113,7 @@ as a cosmetic limitation, not a correctness or safety issue.
 | Failure | Response |
 |---|---|
 | MCP connector not configured/reachable | Stop immediately, don't retry. Report as a TrueForge configuration problem. |
+| GitHub tool not found on the connector | Stop, don't retry. Report the connector name and tool prefix used, and that the gateway's tool allowlist may be missing the tool. |
+| Tool answered with an error (e.g. 404/422) | Stop, don't retry — it's a real answer, not a glitch. Report it as given. |
 | Permission/scope error on any tool call | Stop, don't retry. Report as a connector-token-scope problem — never attempt to work around it. |
 | Transient/network-looking failure | Retry up to twice with a short pause, then stop and report if still failing. |

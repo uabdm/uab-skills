@@ -5,6 +5,16 @@ session, who may not be technical. Never say "deployed" or "live" —
 this skill only pushes a branch; hosting/deployment beyond that is a
 separate step it never takes.
 
+## Skipped binary files (add to any success report when present)
+
+If the script printed `SKIPPED_BINARY:`, add this to whichever success
+template applies — plainly, not as a footnote:
+
+> These files were **not** pushed, because the GitHub connector can only
+> carry text files: `<path>`, `<path>`. They need to be added to
+> **`deploy/<app-slug>`** separately (for example by uploading them on
+> GitHub) before the app is complete.
+
 ## On success — first deploy for this app, repo already existed
 
 > I've pushed **&lt;app-name&gt;**'s code to a new branch,
@@ -48,11 +58,22 @@ separate step it never takes.
 
 ## On failure — MCP connector not configured
 
-> I couldn't push **&lt;app-name&gt;**'s code — the GitHub connector
-> (`<mcp-server-name>`) isn't available in this session. This is a
+> I couldn't push **&lt;app-name&gt;**'s code — the connector that carries
+> the GitHub tools (`<mcp-server-name>`, normally the `bifrost` gateway)
+> isn't available in this session. This is a
 > TrueForge configuration issue (check `Settings → Connectors`), not
 > something fixable from here. Nothing was touched — no repo, branch, or
 > commit was created anywhere.
+
+## On failure — GitHub tools not found on the connector
+
+> I couldn't push **&lt;app-name&gt;**'s code — the connector
+> (`<mcp-server-name>`) is reachable, but it doesn't offer the GitHub
+> tools this needs (looked for `<tool-prefix><tool>` and `<tool>`). This
+> is a configuration issue: check that the connector name is right and
+> that the gateway allows `create_repository`, `list_branches`,
+> `create_branch`, `push_files` and `get_me` for this connector. Nothing
+> was touched — no repo, branch, or commit was created anywhere.
 
 ## On failure — permission/scope rejected
 

@@ -31,18 +31,15 @@ references/mcp-mechanism.md for the full table:
     false) and content is plain text, so binary files are skipped and
     reported, never pushed.
 
-STILL NEEDS VERIFICATION (see references/mcp-mechanism.md):
-  3. Whether THIS FILE, checked in at scripts/deploy.py, can be executed
-     directly in the sandbox and successfully `import mcp_client` --
-     or whether Code Mode only exposes mcp_client to script *source* the
-     agent passes inline to a Code-Mode-specific call. If it's the
-     latter, SKILL.md must instruct the agent to read this file's
-     contents and pass them as the script body instead of running the
-     file directly -- the logic below is unchanged either way.
-  4. The exact Python shape call_tool returns/raises. payload() and
-     classify() below accept every shape seen in MCP results (structured
-     content, JSON text content, plain strings, isError results) so this
-     is defensive rather than blocking; tighten once confirmed.
+CONFIRMED IN A LIVE TRUEFORGE RUN (2026-10-08, see references/mcp-mechanism.md):
+  3. This file runs directly in the sandbox (`python3 scripts/deploy.py`)
+     and `import mcp_client` works.
+  4. call_tool's result shape: when the tool's text is JSON it comes back
+     already parsed (dict/list); otherwise as a list of MCP TextContent
+     objects. Tool errors (e.g. GitHub's "failed to list branches: ...
+     404 Not Found") come back that same way, as text -- NOT raised.
+     payload() turns TextContent into text/JSON, and _raw_call() treats
+     GitHub-style error text as a failure.
 """
 import argparse
 import asyncio
@@ -168,16 +165,35 @@ def _maybe_json(text: str):
         return text
 
 
+def _text_of_block(block):
+    """The text of an MCP text content block (pydantic TextContent or dict), else None."""
+    if isinstance(block, dict):
+        return block.get("text") if block.get("type") == "text" else None
+    if getattr(block, "type", None) == "text":
+        return getattr(block, "text", None)
+    return None
+
+
 def payload(result):
     """
-    Normalizes whatever call_tool returns into plain Python data. MCP tool
-    results arrive as structured content, as JSON inside text content
-    blocks, or already parsed -- see caveat 4 in the module docstring.
+    Normalizes whatever call_tool returns into plain Python data. In Code
+    Mode, JSON results arrive already parsed and everything else (including
+    tool errors) as a list of TextContent objects -- see caveat 4 in the
+    module docstring. Structured-content and CallToolResult shapes are
+    handled too.
     """
-    if isinstance(result, (list, int, float, bool)) or result is None:
+    if isinstance(result, (int, float, bool)) or result is None:
         return result
+    if isinstance(result, list):
+        texts = [_text_of_block(c) for c in result]
+        if result and all(t is not None for t in texts):
+            return _maybe_json("".join(texts))
+        return result  # already-parsed data, e.g. [{name, sha}, ...]
     if isinstance(result, str):
         return _maybe_json(result)
+    bare = _text_of_block(result)
+    if bare is not None:
+        return _maybe_json(bare)
     if isinstance(result, dict):
         if result.get("structuredContent") is not None:
             return result["structuredContent"]
@@ -203,13 +219,29 @@ def _is_error_result(result) -> bool:
 def classify(text: str) -> str:
     text = text.lower()
     # Bifrost / MCP: "tool 'github-push_files' not found" (JSON-RPC -32602)
-    if re.search(r"tool\b.*\bnot found", text) or "unknown tool" in text:
+    if re.search(r"tool '[^']*' not found", text) or "unknown tool" in text:
         return "tool_not_found"
     if "no such server" in text or "not configured" in text or "server not found" in text:
         return "not_configured"
-    if any(w in text for w in ("permission", "forbidden", "403", "401", "unauthorized", "scope")):
+    if (re.search(r"\b40[13] (unauthorized|forbidden)\b", text)
+            or any(w in text for w in ("permission denied", "forbidden", "unauthorized",
+                                       "insufficient scope", "missing scope"))):
         return "permission"
     return "transient"
+
+
+# GitHub MCP server errors come back as text, e.g.
+#   "failed to list branches: GET https://api.github.com/...: 404 Not Found []"
+_GITHUB_ERROR_TEXT = re.compile(r"^failed to |: [45]\d\d [A-Z]", re.IGNORECASE)
+
+
+def _error_text(data):
+    """The error message if a normalized tool result is error text, else None."""
+    if not isinstance(data, str):
+        return None
+    if _GITHUB_ERROR_TEXT.search(data) or classify(data) in ("tool_not_found", "not_configured"):
+        return data
+    return None
 
 
 class GitHubTools:
@@ -237,21 +269,25 @@ class GitHubTools:
 
         try:
             result = await call_tool(self.server_name, tool, body=body)
-        except Exception as exc:  # noqa: BLE001 -- real shape unconfirmed, see caveat 4
+        except Exception as exc:  # noqa: BLE001 -- errors normally arrive as text, see caveat 4
             kind = classify(str(exc))
+            if kind == "transient" and _GITHUB_ERROR_TEXT.search(str(exc)):
+                kind = "tool_error"  # a real GitHub answer (404/422...), not worth retrying
             if kind == "not_configured":
                 raise McpError(f"MCP server '{self.server_name}' unavailable: {exc}", kind=kind)
             raise McpError(f"{tool} call failed: {exc}", kind=kind)
 
-        # A tool can also answer with an error result instead of raising
-        # (e.g. GitHub's 404 / 422). That's a real answer, not a transient
-        # failure -- never retried.
-        if _is_error_result(result):
-            text = str(payload(result))
-            kind = classify(text)
-            raise McpError(f"{tool} returned an error: {text}",
+        # A tool can also answer with an error instead of raising -- flagged
+        # (isError) or, as Code Mode does, just as error text (e.g. GitHub's
+        # 404 / 422). That's a real answer, not a transient failure -- never
+        # retried.
+        data = payload(result)
+        error = str(data) if _is_error_result(result) else _error_text(data)
+        if error is not None:
+            kind = classify(error)
+            raise McpError(f"{tool} returned an error: {error}",
                            kind="tool_error" if kind == "transient" else kind)
-        return payload(result)
+        return data
 
     async def call(self, name: str, body: dict):
         if name in self.resolved:

@@ -50,10 +50,10 @@ automatically.
 **Verified against the live GitHub MCP server (2026-10-08):** the tool
 names and parameters `scripts/deploy.py` uses, and that the push tool
 carries **text only** — binary files (images, fonts, ...) are skipped and
-reported, never pushed (see step e). Two details are still unconfirmed:
-whether `scripts/deploy.py` can be run as a checked-in file versus needing
-its source passed inline to Code Mode, and the exact Python shape of
-`call_tool`'s results and failures (handled defensively). Both are listed
+reported, never pushed (see step e). Also confirmed in a live TrueForge
+run: `scripts/deploy.py` runs as a checked-in file with `mcp_client`
+importable, and `call_tool` returns parsed JSON on success but tool
+errors as plain text (not exceptions) — the script handles both. Details
 in `references/mcp-mechanism.md` and at the top of `scripts/deploy.py`.
 
 ## Invocation contract
@@ -230,7 +230,7 @@ and the target repo's real branches are untouched.
 
 - `references/mcp-mechanism.md` — the Code Mode / `mcp_client.call_tool`
   mechanism in full, the verified GitHub tool names and parameters, the
-  details that still need verification, and the
+  live-confirmed `call_tool` result shapes, and the
   `require_approval_for_tools` caveat.
 - `references/branch-and-commit-strategy.md` — the `deploy/<app-slug>`
   derivation rule, idempotent re-run behavior, the file-collection

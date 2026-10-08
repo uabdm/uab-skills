@@ -63,29 +63,31 @@ Consequences built into `deploy.py`:
   result (`isError`) instead of raising; `deploy.py` treats those as real,
   non-retryable answers.
 
-## Still needs verification before this is trusted in production
+## Confirmed in a live TrueForge run (2026-10-08)
 
-`scripts/deploy.py`'s header comment repeats this list — update both
-places if any item below gets confirmed or turns out wrong (items 1, 2 and
-5 of the original list are resolved above; numbering is kept for history):
+`scripts/deploy.py`'s header comment repeats this — update both places if
+anything below turns out different (items 1, 2 and 5 of the original
+verification list are resolved above; numbering is kept for history):
 
-3. **File execution vs. inline script source.** Confirm whether
-   `scripts/deploy.py`, checked in as a normal file, can be executed
-   directly in the sandbox (`python3 scripts/deploy.py --args...`) and
-   successfully `import mcp_client` — or whether Code Mode only exposes
-   `mcp_client` to script *source text* the agent passes inline to a
-   Code-Mode-specific invocation. If it's the latter, `SKILL.md` needs to
-   instruct the agent to read this file's contents and pass them as the
-   script body, rather than "run this file" — the logic inside the script
-   is identical either way, only how it gets invoked changes.
-4. **`call_tool`'s Python result/error shape.** `deploy.py`'s `payload()`
-   accepts every shape an MCP result can take (structured content, JSON in
-   text content blocks, a plain string, an `isError` result), and
-   `classify()` sorts failures by message text: tool not found
-   (`tool '…' not found`, as Bifrost reports it), connector not
-   configured, permission, or transient. Confirm the exact exception type
-   and return object `call_tool` uses and tighten both once known —
-   string-matching is defensive, not a final design.
+3. **File execution works.** `scripts/deploy.py`, checked in as a normal
+   file, runs directly in the sandbox (`python3 scripts/deploy.py ...`)
+   and `import mcp_client` succeeds — no need to pass the source inline.
+4. **`call_tool`'s result shape.** Observed live, through the `bifrost`
+   connector:
+
+   | Tool answer | What `call_tool` returns |
+   |---|---|
+   | JSON text (most GitHub tools, `registry_version`) | Already-parsed Python data: e.g. `{'serverName': 'agentregistry-mcp', 'version': 'v0.4.0'}`, or `[{'name': 'main', 'sha': '…', 'protected': False}]` for `list_branches` |
+   | Non-JSON text — **including tool errors** | A list of MCP `TextContent` objects, e.g. `[TextContent(type='text', text='failed to list branches: GET https://api.github.com/repos/<owner>/<repo>/branches?...: 404 Not Found []')]` |
+
+   **Errors are returned, not raised**, and the `isError` flag isn't
+   exposed. So `deploy.py`'s `payload()` turns `TextContent` lists into
+   text (or JSON), and `_raw_call()` treats GitHub-style error text
+   (`failed to …`, or `: <4xx/5xx> <Status>`) as a failure: a 404 on
+   `list_branches` means "repo doesn't exist", anything else is reported.
+   Exceptions are still handled the same way in case a future
+   `mcp_client` raises instead. `list_branches` items carry `sha` at the
+   top level (`commit.sha` is also accepted).
 
 ## Operational caveat: approval policies still apply
 

@@ -1,6 +1,6 @@
 ---
 name: uab-deploy
-description: Pushes an already-generated UAB app's files from disk into a dedicated deploy branch of a GitHub repo, running inside the TrueForge/Daytona generation sandbox right before it tears down — via a GitHub MCP server connector configured in TrueForge (Settings → Connectors), called through TrueForge's Code Mode (`mcp_client.call_tool`). No git binary, no token this skill ever sees — the harness applies the connector's stored credentials on a bridged call, the sandbox never holds them. Auto-creates the target repo if it doesn't already exist. Invoked directly by the orchestrating process as its own separate step, after generation (uab-app-creator-nobrand / uab-app-creator / uab-app-builder) and optionally branding (uab-branding) and QA (uab-app-qa) have already run in this same session — never invoked from inside those skills' own instructions. Takes the target repo URL, target branch, and the generated app's already-on-disk source folder as explicit parameters. Always pushes to a dedicated deploy/<app> branch rather than the named target branch directly. Use when asked to "push this to the repo," "deploy the generated app's code," "stage this for deployment," "get this into our GitHub repository," or similar, once the app's code already exists on disk in this session. Not for interviewing, scaffolding, branding, or QA — see the sibling skills for those — and not for Azure infrastructure or pipeline files.
+description: Pushes an already-generated UAB app's files from disk into a dedicated deploy branch of a GitHub repo, running inside the TrueForge/Daytona generation sandbox right before it tears down — via a GitHub MCP server connector configured in TrueForge (Settings → Connectors), called through TrueForge's Code Mode (`mcp_client.call_tool`). No git binary, no token this skill ever sees — the harness applies the connector's stored credentials on a bridged call, the sandbox never holds them. Auto-creates the target repo if it doesn't already exist. Invoked directly by the orchestrating process as its own separate step, after generation (uab-app-creator-nobrand / uab-app-creator / uab-app-builder) and optionally branding (uab-branding) and QA (uab-app-qa) have already run in this same session — never invoked from inside those skills' own instructions. Takes the target repo URL, target branch, and the generated app's already-on-disk source folder as explicit parameters. Always pushes to a dedicated deploy/<app> branch rather than the named target branch directly, and opens (or reuses) a pull request into the target branch for each review cycle. Also restores an app's files FROM GitHub into the sandbox (`--sync`) when a user comes back to change an app whose sandbox was deleted or whose branch changed on GitHub, and never overwrites changes someone else made on GitHub. Use when asked to "push this to the repo," "deploy the generated app's code," "stage this for deployment," "get this into our GitHub repository," or similar, once the app's code already exists on disk in this session. Not for interviewing, scaffolding, branding, or QA — see the sibling skills for those — and not for Azure infrastructure or pipeline files.
 ---
 
 # UAB Deploy — push the generated app to GitHub via an MCP connector
@@ -22,8 +22,11 @@ own, as a distinct step** — never from inside `uab-app-creator-nobrand`,
 Those skills are unchanged by this one existing.
 
 **Timing:** this runs automatically, with no approval prompt from this
-skill, right before the Daytona sandbox that generated the app tears
-down. There is deliberately no "looks good, go ahead" hard-stop here the
+skill, at the end of each build or revision round (after QA), before the
+sandbox that holds the app stops or is deleted. When a user comes back
+later to change the app, it also runs at the *start* of that round in
+`--sync` mode, to restore or refresh the app from GitHub (see "Returning
+to an app" below). There is deliberately no "looks good, go ahead" hard-stop here the
 way there is before generation in `uab-app-creator-nobrand` — the
 decision to push already happened when the orchestrating process chose
 to invoke this skill. (TrueForge's own `require_approval_for_tools`
@@ -97,6 +100,20 @@ Skill(uab-deploy, args: "--repo-url=https://github.com/org/repo.git
 - `--qa-status=<passed|failed|skipped|unknown>` (optional, default
   `unknown`) — **informational only**, echoed in the report. See
   "Relationship to QA" below — it never gates whether the push happens.
+- `--commit-message` for a **revision** round: pass `"Revise <app-name>:
+  <one-line plain summary of the change>"`. It's also the pull request's
+  title when this run opens one.
+- `--no-pr` (optional) — push only; don't look up or open a pull request.
+- `--adopt-branch` (optional) — only when the user explicitly decides this
+  sandbox's files should replace an existing deploy branch the sandbox has
+  no record of pushing (see `BRANCH_NOT_TRACKED`). Never pass it on your own.
+- `--state-dir=<path>` (optional, default `<parent of --source-dir>/.uab-deploy`)
+  — where the deploy state and sync backups are kept (outside the app
+  folder, so they're never pushed or zipped).
+- `--sync` (optional) — restore/refresh `--source-dir` **from** GitHub
+  instead of pushing. See "Returning to an app" below.
+- `--sync-from=<branch>` (optional, with `--sync`) — restore from this
+  branch instead of choosing automatically.
 
 ## Deploy flow
 
@@ -120,11 +137,17 @@ match `--target-branch` (GitHub defaults new repos to `main`; the caller
 may have asked for `develop`), create `--target-branch` from the default
 branch first — never silently substitute one branch for the other.
 
-**d. Determine the deploy branch.** `--deploy-branch-name` if given,
-else `deploy/<app-slug>`. Look it up in the branch list: already exists →
-this is a re-run for this app (reuse it). Otherwise → create it from
-`--target-branch` (`create_branch` with `from_branch`; first deploy for
-this app).
+**d. Determine the deploy branch — one review cycle = one branch + one
+PR.** Start from `--deploy-branch-name`, else the branch this sandbox
+last deployed to (from its deploy state), else `deploy/<app-slug>`, and
+look up its pull requests (`list_pull_requests`):
+- the branch exists and its PR is **open** (or it has no PR) → reuse it:
+  this round adds a commit to the same PR;
+- the branch exists but its PR was **merged** → that review is finished:
+  start a new branch `deploy/<app-slug>-<YYYYMMDD-HHMM>` from
+  `--target-branch`;
+- the branch doesn't exist (first deploy, or GitHub auto-deleted it after
+  the merge) → create `deploy/<app-slug>` from `--target-branch`.
 
 **e. Collect the generated app's files.** Walk `--source-dir`, excluding
 exactly the categories `uab-app-creator-nobrand`'s `package-app-fast.sh`
@@ -136,16 +159,67 @@ only carries UTF-8 text, so any file that isn't valid UTF-8 text (images,
 fonts, ...) is skipped and listed in the script's `SKIPPED_BINARY:` line
 for the report.
 
-**f. Push as a single commit.** One call to the connector's push tool
+**f. Check GitHub for changes made by someone else — never overwrite
+them.** The script keeps a small deploy state (which branch it pushed and
+a fingerprint of every file) next to the app, outside it. Before pushing
+it lists the files on GitHub and compares:
+- reusing a branch: a file this push would overwrite was changed or
+  deleted on GitHub since this sandbox last pushed it → stop with
+  `BRANCH_DIVERGED`;
+- new branch after a merge: a file was changed on `--target-branch` since
+  this app was last deployed → stop with `TARGET_CHANGED`;
+- reusing a branch this sandbox has **no record of** (an older sandbox, or
+  someone else's) whose files differ → stop with `BRANCH_NOT_TRACKED`.
+
+The sandbox's own edits never trigger a stop — only GitHub-side changes.
+In every stop case **nothing is pushed**; the fix is `--sync`, re-apply
+the change, QA, deploy (see "Returning to an app"). Files this app pushed
+before that it no longer has are reported as `STALE_ON_BRANCH` — never
+deleted automatically.
+
+**g. Push as a single commit.** One call to the connector's push tool
 (`push_files`) with every collected text file, targeting the deploy
 branch. This is inherently additive/overwrite-only for the paths given —
 never deletes or mirror-prunes anything else already in the target repo.
+The deploy state is then updated.
 
-**g. Report back.** See "Report back" below.
+**h. Pull request.** If the deploy branch has no open PR into
+`--target-branch`, open one (`create_pull_request`; title = the commit
+message; body lists the QA status, skipped binary files and stale files).
+Otherwise report the existing PR. If opening the PR fails, the push still
+stands — report it as `PR_NOT_OPENED` with the reason.
+
+**i. Report back.** See "Report back" below.
+
+## Returning to an app: `--sync`
+
+When a user comes back to change an app, the sandbox may no longer have
+it (sandboxes are deleted after a few days) or GitHub may have changes the
+sandbox doesn't (a reviewer's edit, a merged PR). **GitHub is the source of
+truth; the sandbox is a working copy.** Run the script with `--sync` (same
+`--repo-url`, `--target-branch`, `--source-dir`) at the start of a
+revision round when:
+- the app folder doesn't exist in this sandbox, or
+- a deploy stopped with `BRANCH_DIVERGED`, `TARGET_CHANGED` or
+  `BRANCH_NOT_TRACKED`.
+
+It restores from the app's **open deploy branch** (its PR still open),
+otherwise from `--target-branch`. File contents can't come through the
+gateway, so each file is downloaded from the `download_url` GitHub lists
+for it — a short-lived, single-file link (details in
+`references/mcp-mechanism.md`); the GitHub token never enters the
+sandbox, and the links are never printed. Any local file it replaces is
+backed up first (`SYNC_BACKUP:` gives the folder), files only present
+locally are kept (`LOCAL_ONLY:`), and excluded folders (`node_modules/`,
+...) are untouched. If the app references the UAB logo but it isn't on
+GitHub (`MISSING_ASSET:`), copy `uab-branding`'s
+`assets/uabCoreLogoWhiteSmall.png` to `public/uab-logo-white.png`. After a
+sync that replaced local edits, re-apply the change using the backed-up
+versions, then QA, then deploy.
 
 ## Mandated script — never hand-roll individual MCP calls
 
-Always run `scripts/deploy.py` for steps b–f above, via Code Mode, exactly
+Always run `scripts/deploy.py` for steps b–h above (and for `--sync`), via Code Mode, exactly
 once per invocation — never issue `call_tool` invocations by hand, even
 for a case that looks simple. It's what enforces every guardrail in this
 file the same way every run: the deploy-branch rule is applied
@@ -164,9 +238,9 @@ has time left to complete before teardown.
 
 Full reasoning in `references/branch-and-commit-strategy.md`. Summary:
 **always push to a dedicated `deploy/<app-slug>` branch, never directly
-to the literal `--target-branch` named by the caller — and reuse that
-same branch across re-runs of the same app, appending a new commit each
-time.** The push mechanism (a commit-creation tool call, not a raw ref
+to the literal `--target-branch` named by the caller — reuse that branch
+(and its PR) across revisions while the PR is open, and start a fresh
+branch from the target once it's merged.** The push mechanism (a commit-creation tool call, not a raw ref
 update) has no force-push-shaped operation at all on this path — the
 class of bug a git-based design would have to explicitly forbid is
 structurally absent here, not just prohibited by convention.
@@ -200,6 +274,11 @@ keeps this skill single-purpose, and keeps the one real safety mechanism
   non-git deployment/hosting action.
 - Never hand-roll individual `call_tool` invocations outside
   `scripts/deploy.py`.
+- Never overwrite changes someone else made on GitHub. On
+  `BRANCH_DIVERGED`, `TARGET_CHANGED` or `BRANCH_NOT_TRACKED`, sync first;
+  pass `--adopt-branch` only when the user has explicitly decided to
+  replace the branch's content.
+- Never print, log, or repeat a `download_url` — each carries a token.
 
 ## Report back
 
@@ -216,15 +295,26 @@ a real environment" caveat whenever it isn't `passed` — say this
 plainly, not buried, the same register `uab-app-creator-nobrand` uses
 for "the output is unverified"; if the script reported `SKIPPED_BINARY`,
 list those files plainly as **not pushed** (they need adding to the
-branch separately); and a closing line that nothing beyond this happened
-(no hosting, no pipeline, no other infrastructure).
+branch separately); the **pull request link** (`PR:` line — say whether
+it was just opened or already existed and now includes this update), or
+`PR_NOT_OPENED` plainly; if this round started a **new review branch**
+because the previous PR was merged, say so; any `STALE_ON_BRANCH` files
+(no longer in the app but still in the repo — the reviewer may want to
+delete them); and a closing line that nothing beyond this happened (no
+hosting, no pipeline, no other infrastructure).
 
 **On failure:** state plainly that the push did not succeed and exactly
 how far it got; the plain-language failure category (connector not
 configured, GitHub tools not found on the connector, permission/scope,
-branch diverged) and one concrete next
-step; and explicit confirmation that nothing destructive was attempted
-and the target repo's real branches are untouched.
+someone else changed the branch / the target branch / a branch this
+session doesn't own) and one concrete next step (for the last three:
+"I'll bring their changes in first, re-apply yours, and deploy again");
+and explicit confirmation that nothing destructive was attempted and the
+target repo's real branches are untouched.
+
+**After a sync:** where the app was restored from (deploy branch or
+target), how many files came back, and — plainly — any local edits that
+were replaced (and backed up) or files that only exist locally.
 
 ## Reference index
 
@@ -233,7 +323,8 @@ and the target repo's real branches are untouched.
   live-confirmed `call_tool` result shapes, and the
   `require_approval_for_tools` caveat.
 - `references/branch-and-commit-strategy.md` — the `deploy/<app-slug>`
-  derivation rule, idempotent re-run behavior, the file-collection
-  exclude list, and the failure matrix.
+  derivation rule, review cycles (reuse while the PR is open, new branch
+  after a merge), the deploy state and divergence checks, `--sync`, the
+  file-collection exclude list, and the failure matrix.
 - `references/report-template.md` — the plain-language success/failure
   report templates.

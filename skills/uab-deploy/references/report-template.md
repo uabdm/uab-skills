@@ -15,6 +15,27 @@ template applies — plainly, not as a footnote:
 > **`deploy/<app-slug>`** separately (for example by uploading them on
 > GitHub) before the app is complete.
 
+## Pull request (add to any success report)
+
+From the script's `PR:` line:
+
+- **opened** → "I opened a pull request to merge it into
+  `<target-branch>`: <url>. Merging it is the review step."
+- **existing** → "The pull request that's already open for this app
+  (<url>) now includes this update."
+- `PR_NOT_OPENED` → "The code is on the branch, but I couldn't open the
+  pull request (<reason>). You can open it on GitHub from
+  `deploy/<app-slug>` into `<target-branch>`."
+
+## Stale files (add to any success report when present)
+
+If the script printed `STALE_ON_BRANCH:`:
+
+> These files were part of an earlier version of the app but aren't any
+> more: `<path>`, `<path>`. They're still in the repository (I never
+> delete files there) — whoever reviews the pull request may want to
+> remove them.
+
 ## On success — first deploy for this app, repo already existed
 
 > I've pushed **&lt;app-name&gt;**'s code to a new branch,
@@ -53,8 +74,20 @@ template applies — plainly, not as a footnote:
 > QA status for this build: **&lt;qa-status&gt;**. &lt;&lt;&lt; same
 > caveat as above if not "passed" &gt;&gt;&gt;
 >
-> If a pull request already exists from this branch, it now includes this
-> update automatically. Nothing else happened beyond this push.
+> The pull request for this branch (<url>) now includes this update.
+> Nothing else happened beyond this push.
+
+## On success — new review round after the previous one was merged
+
+> The last version of **&lt;app-name&gt;** was already merged into
+> `<target-branch>`, so I put these changes on a new branch,
+> **`<deploy-branch>`**, based on the current `<target-branch>`, and
+> opened a new pull request for them: <url>.
+>
+> QA status for this build: **&lt;qa-status&gt;**. &lt;&lt;&lt; same
+> caveat as above if not "passed" &gt;&gt;&gt;
+>
+> Nothing else happened beyond this push.
 
 ## On failure — MCP connector not configured
 
@@ -72,8 +105,9 @@ template applies — plainly, not as a footnote:
 > tools this needs (looked for `<tool-prefix><tool>` and `<tool>`). This
 > is a configuration issue: check that the connector name is right and
 > that the gateway allows `create_repository`, `list_branches`,
-> `create_branch`, `push_files` and `get_me` for this connector. Nothing
-> was touched — no repo, branch, or commit was created anywhere.
+> `create_branch`, `push_files`, `get_me`, `get_file_contents`,
+> `list_pull_requests` and `create_pull_request` for this connector.
+> Nothing was touched — no repo, branch, or commit was created anywhere.
 
 ## On failure — permission/scope rejected
 
@@ -84,11 +118,30 @@ template applies — plainly, not as a footnote:
 > branch&gt;). Next step: check the connector's configured scope in
 > `Settings → Connectors`, then this can be re-run.
 
-## On failure — branch diverged
+## On a stop — someone else changed the code on GitHub
 
-> I attempted to push **&lt;app-name&gt;**'s update to
-> `deploy/<app-slug>` in `<owner>/<repo>`, but something else has already
-> changed that branch since the last run here. I did **not** overwrite
-> it — the target repo's branches are untouched. Someone needs to look at
-> `deploy/<app-slug>` directly and decide how to reconcile it before this
-> can be re-run.
+For `BRANCH_DIVERGED`, `TARGET_CHANGED` or `BRANCH_NOT_TRACKED`. Nothing
+was pushed. Normally you then continue on your own: `--sync`, re-apply
+the change, QA, deploy — and report the end result. Say what happened
+first, plainly:
+
+> Before pushing, I checked GitHub and found that &lt;someone changed
+> `<file>` on the review branch since my last update / the main version
+> of the app has changed since it was last merged / the branch
+> `<deploy-branch>` has changes I can't account for&gt;. I didn't
+> overwrite anything. I'll bring those changes into my copy first, re-apply
+> your requested changes on top of them, re-test, and then push.
+
+If re-applying isn't safe (the other change touches the same thing the
+user asked to change in a conflicting way), stop and ask the user which
+version to keep instead of choosing.
+
+## After a sync
+
+> I restored **&lt;app-name&gt;** from GitHub (&lt;its open review branch
+> `<branch>` / `<target-branch>`, since the last version was merged&gt;) —
+> &lt;N&gt; files. &lt;&lt;&lt; if SYNC_BACKUP: *My earlier, unpushed
+> edits to `<path>` were replaced by the GitHub version; I kept a copy and
+> will re-apply them.* &gt;&gt;&gt; &lt;&lt;&lt; if MISSING_ASSET: *The UAB
+> logo isn't stored on GitHub, so I put the standard logo back from the
+> branding kit.* &gt;&gt;&gt;

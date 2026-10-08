@@ -49,6 +49,36 @@ gateway's `GET /api/mcp/clients`). This is what `deploy.py` relies on:
 | `create_repository` | `name`, `private`, `autoInit`, `organization` | No `owner` parameter; `organization` only when creating outside the token's own account. `autoInit` (camelCase) gives the repo its first commit. |
 | `create_branch` | `owner`, `repo`, `branch`, `from_branch` | Branches from a branch **name**, not a SHA. |
 | `push_files` | `owner`, `repo`, `branch`, `files`, `message` | Each file item allows **only** `{path, content}` (`additionalProperties: false`) and `content` is plain text. No `encoding` field; binary content can't be sent. |
+| `get_file_contents` | `owner`, `repo`, `path`, `ref` (`refs/heads/<branch>`), `fields` | **Directories only.** Returns a JSON listing; with `fields: [path, type, sha, size, download_url]` each file has its blob `sha` and a `download_url`. Used for the divergence check and `--sync`. On a *file* it's useless through the gateway — see below. |
+| `list_pull_requests` | `owner`, `repo`, `state: all`, `head: <owner>:<branch>`, `perPage` | Finds the deploy branch's PRs (open / merged). |
+| `create_pull_request` | `owner`, `repo`, `title`, `head`, `base`, `body` | Opens the PR from the deploy branch into `--target-branch`. |
+
+**The gateway drops file contents.** GitHub's server answers
+`get_file_contents` on a *file* with two blocks: a text summary and the
+file as an MCP **embedded resource**. Bifrost converts tool results to
+text and replaces any embedded resource with a marker
+(`core/mcp/utils.go`: `case mcp.EmbeddedResource:
+result.WriteString(fmt.Sprintf("[Embedded Resource Response: %s]\n", ...))`),
+so callers only ever see `successfully downloaded text file (SHA: …)[Embedded Resource Response: resource]`
+— no content, and no setting changes it. **Directory listings are plain
+JSON and come through intact**, including each file's `download_url`:
+`https://raw.githubusercontent.com/<owner>/<repo>/<commit>/<path>?token=…`.
+For private repos GitHub embeds a short-lived token that grants read
+access to that one file only (verified 2026-10-08: with the token HTTP
+200 and the exact bytes; without it, 404). The URL is pinned to a commit,
+so one listing gives a consistent snapshot. `--sync` downloads each file
+from it directly in the sandbox — the GitHub PAT still never enters the
+sandbox — and never prints the URL. Trade-off: those links pass through
+the gateway's logs and the agent's context while they're valid.
+
+**Gateway allowlist.** Every tool in the table must be allowed for the
+`github` MCP client in Bifrost (`toolsToExecute` in
+`k8s\bifrost-values.yaml`) and for the virtual key TrueForge's `bifrost`
+connector uses: `create_repository`, `create_branch`, `push_files`,
+`list_branches`, `get_file_contents`, `get_me`, `list_pull_requests`,
+`create_pull_request`. A missing one fails with `MCP_TOOL_NOT_FOUND`
+(the PR tools degrade gracefully: the push still happens, with no PR
+handling).
 
 Consequences built into `deploy.py`:
 
@@ -102,13 +132,11 @@ detect this from inside the script. If fully unattended deploys are
 wanted, whoever administers the TrueForge instance should exclude these
 specific tools from `require_approval_for_tools` — this skill can only
 document the tradeoff, not enforce a choice. Through the Bifrost gateway
-the tools appear as `github-create_repository`, `github-list_branches`,
-`github-create_branch`, `github-push_files` and `github-get_me`, so match
-those names in the policy.
-
-The gateway also has its own allowlist: every tool above must be enabled
-for the `github` MCP client and the virtual key TrueForge's `bifrost`
-connector uses, or the call fails with `MCP_TOOL_NOT_FOUND`.
+the tools appear with a `github-` prefix (`github-create_repository`,
+`github-list_branches`, `github-create_branch`, `github-push_files`,
+`github-get_me`, `github-get_file_contents`, `github-list_pull_requests`,
+`github-create_pull_request`), so match those names in the policy. The
+gateway's own allowlist is described under "Gateway allowlist" above.
 
 ## Why this replaced git entirely
 

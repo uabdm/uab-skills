@@ -56,6 +56,14 @@ first would have.
 
 ## Workflow (web app)
 
+**After a revision** (a change to an app that already passed QA once —
+see `uab-app-creator-nobrand`'s revision mode), run **every** phase again
+from Phase 0, not just the area that changed: a one-line change can break
+an unrelated route, a new dependency can bring a new audit finding, and a
+restored sandbox may be missing installed tools. In the Phase 5 report,
+name the change being tested (from the newest `## Change history` entry
+in `PLAN.md`).
+
 Work through these phases **in order**, every time — do not skip Phase 3
 just because Phase 1 and 2 passed. A clean build proves the code compiles;
 it proves nothing about what happens when a real browser renders and

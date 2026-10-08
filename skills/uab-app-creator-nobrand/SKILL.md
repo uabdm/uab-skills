@@ -1,6 +1,6 @@
 ---
 name: uab-app-creator-nobrand
-description: Fast, zero-verification UAB app generator — same interview, same decision matrix, same Next.js+MUI or Python/FastAPI scaffolds, same Ory Hydra OIDC login pattern as uab-app-creator-fast, but delegates all UAB branding and WCAG 2.1 AA accessibility work to the standalone `uab-branding` skill instead of carrying it inline. Never runs npm/pip, never installs, audits, builds, or checks the code in any way — it just writes the files and zips them. Use ONLY when the user explicitly asks for something fast, a quick proof-of-concept, a demo, or says to skip verification/build/install (e.g. "just give me the source code fast," "quick POC," "skip the build check," "demo purposes," "don't bother verifying it"). This is a sibling of `uab-app-creator-fast` — both exist side by side for now; see the note at the bottom of this file about that.
+description: Fast, zero-verification UAB app generator — same interview, same decision matrix, same Next.js+MUI or Python/FastAPI scaffolds, same Ory Hydra OIDC login pattern as uab-app-creator-fast, but delegates all UAB branding and WCAG 2.1 AA accessibility work to the standalone `uab-branding` skill instead of carrying it inline. Never runs npm/pip, never installs, audits, builds, or checks the code in any way — it just writes the files and zips them. Use ONLY when the user explicitly asks for something fast, a quick proof-of-concept, a demo, or says to skip verification/build/install (e.g. "just give me the source code fast," "quick POC," "skip the build check," "demo purposes," "don't bother verifying it"). Also use it — in its Revision mode — when the user asks for changes to an app it generated before ("change the greeting", "add a page for…"): targeted edits to the existing code, never regenerating it, with the change recorded in PLAN.md. This is a sibling of `uab-app-creator-fast` — both exist side by side for now; see the note at the bottom of this file about that.
 ---
 
 # UAB App Creator — Fast, branding delegated to `uab-branding`
@@ -40,6 +40,11 @@ be a technical teammate's or IT contact's, on their behalf.
 
 ## Mode detection
 
+- The user asks for changes to an app that already exists — one this
+  skill generated earlier in this session or a previous one, an app
+  folder with a `PLAN.md` already in this workspace, or a repository they
+  name → **revision mode** (below). Check this first: never answer a
+  change request with interactive or generation mode.
 - No prior answers captured yet (a fresh invocation, no idea description
   already supplied) → **interactive mode**.
 - The user already supplied a filled-in idea/answers (e.g. pasted a
@@ -153,7 +158,36 @@ command risks shipping a real secret or a stray local data file.
      zip. Deploying it somewhere permanent is a separate step for a
      developer or their IT team either way.
 
+## Revision mode
+
+Full procedure in `references/revision-mode.md` — read it before the
+first change. Summary:
+
+0. The app's current code must already be in this workspace (the
+   orchestrating process restores it from GitHub with `uab-deploy --sync`
+   first). If it isn't, stop and say so — never rebuild it from memory.
+1. Read `PLAN.md` and the code the request touches; the code is the truth
+   (it may hold QA fixes or a reviewer's edits).
+2. Restate the change in plain language. **Feature-level** changes (new
+   or removed pages/features, different data, login/access, new systems,
+   AI, data sensitivity) get the same **HARD STOP** as generation: update
+   `PLAN.md`, show it, wait for a separate "looks good". Small changes
+   (wording, brand-compliant styling, layout, a reported bug) proceed.
+   Unsure → feature-level.
+3. Make **targeted edits** only — same reference files and conventions as
+   generation; never re-run `uab-branding` GENERATE or rewrite its files,
+   but follow its rules for anything new; never undo QA fixes.
+4. Re-package with `scripts/package-app-fast.sh`.
+5. Append the change to `PLAN.md`'s `## Change history`.
+6. Report what changed in plain language, and that it is **not yet
+   tested** — QA and the push to GitHub come next.
+
 ## Principles to preserve
+
+- **Revise, never regenerate.** A change to an existing app is a targeted
+  edit (revision mode). Regenerating discards QA fixes, branding, and
+  reviewers' edits; only start over when the project leader explicitly
+  asks to.
 
 - Plain language only with the project leader — every technical decision
   in `references/decision-matrix.md` is made silently, never surfaced as a

@@ -169,3 +169,7 @@ listed in the included instructions. Getting it set up somewhere permanent
 that everyone can reach is a separate next step for a developer or your IT
 team.
 ```
+
+Later changes to the app are recorded by revision mode in a
+`## Change history` section appended to the end of this file — see
+`references/revision-mode.md`. Don't add that section at generation time.

@@ -124,14 +124,19 @@ root) excluding exactly:
 ```
 node_modules/  .next/  .venv/  __pycache__/  .data/  .localstorage/
 .git/  .verify/  .env  .env.local
+.qa/  test-results/  playwright-report/
 ```
 
-This list is a deliberate duplicate of
+The first two lines are a deliberate duplicate of
 `uab-app-creator-nobrand/scripts/package-app-fast.sh`'s own exclude
 list — kept as its own copy in this skill rather than a shared import, the
 same "stays self-contained" precedent `uab-app-qa/scripts/bg-run.sh`'s
 header comment already sets for this codebase. If that list ever changes,
-update both places.
+update both places. The last line is `uab-app-qa`'s scratch and test
+output (its spec, background-job logs and pid files, Playwright results):
+it is never part of the app, and `uab-app-qa/scripts/package-for-handoff.sh`
+excludes `.qa/` from the zip for the same reason. Without these entries
+every QA run's logs end up in the pull request.
 
 `.gitignore` itself is an ordinary file and **is** collected — only the
 `.git/` *directory* is excluded (it would hold the generated app's own

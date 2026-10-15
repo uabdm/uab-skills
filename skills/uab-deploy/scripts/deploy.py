@@ -81,6 +81,8 @@ STATE_VERSION = 1
 EXCLUDE_DIRS = {
     "node_modules", ".next", ".venv", "__pycache__",
     ".data", ".localstorage", ".git", ".verify",
+    # uab-app-qa scratch/test output -- never part of the app (see package-for-handoff.sh)
+    ".qa", "test-results", "playwright-report",
 }
 EXCLUDE_FILES = {".env", ".env.local"}
 

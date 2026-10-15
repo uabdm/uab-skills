@@ -150,9 +150,11 @@ look up its pull requests (`list_pull_requests`):
   the merge) → create `deploy/<app-slug>` from `--target-branch`.
 
 **e. Collect the generated app's files.** Walk `--source-dir`, excluding
-exactly the categories `uab-app-creator-nobrand`'s `package-app-fast.sh`
-already excludes: `node_modules/`, `.next/`, `.venv/`, `__pycache__/`,
-`.data/`, `.localstorage/`, `.git/`, `.verify/`, `.env`, `.env.local`.
+the categories `uab-app-creator-nobrand`'s `package-app-fast.sh`
+excludes: `node_modules/`, `.next/`, `.venv/`, `__pycache__/`,
+`.data/`, `.localstorage/`, `.git/`, `.verify/`, `.env`, `.env.local` —
+plus `uab-app-qa`'s scratch and test output: `.qa/`, `test-results/`,
+`playwright-report/`.
 (`.gitignore` itself is a normal file and IS collected — only the `.git/`
 directory is excluded.) **Binary files are not pushed:** the push tool
 only carries UTF-8 text, so any file that isn't valid UTF-8 text (images,

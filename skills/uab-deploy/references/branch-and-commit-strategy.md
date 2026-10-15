@@ -45,8 +45,19 @@ deploy branch and one pull request into `--target-branch`:
 | Branch doesn't exist (first deploy, or GitHub's "automatically delete head branches" removed it after the merge) | Create **`deploy/<app-slug>`** from `--target-branch`, open a PR |
 
 Which branch is "the app's" comes from `--deploy-branch-name`, else the
-deploy state (below), else `deploy/<app-slug>`. PRs are looked up with
-`list_pull_requests` (`head=<owner>:<branch>`, `state=all`). Recommend that
+deploy state (below), else — when this sandbox has neither — the **newest
+open PR** whose head is `deploy/<app-slug>` or
+`deploy/<app-slug>-<YYYYMMDD-HHMM>` (found with `list_pull_requests`,
+`state=open`, no `head` filter; the branch must still exist, and the exact
+slug must match, so `hello-world` never picks up `hello-world-2`; the
+script prints `DEPLOY_BRANCH_FOUND:`), else `deploy/<app-slug>`. Without
+that search, a new chat or sandbox would fall back to the plain name, see
+its merged PR, and treat the app as finished while a later review was
+still open (it would sync from `--target-branch` and open a second PR). If
+the PR tools are unavailable, or the PR list carries no head-branch names,
+nothing is found and the plain-name fallback applies. Once a branch is
+chosen, its PRs are looked up with `list_pull_requests`
+(`head=<owner>:<branch>`, `state=all`). Recommend that
 repo owners turn on **Settings → General → Automatically delete head
 branches**: then every cycle can use the plain `deploy/<app-slug>` name.
 
@@ -95,10 +106,13 @@ automatically.
 ## `--sync`: restoring the app from GitHub
 
 GitHub is the source of truth; the sandbox is a working copy that may be
-gone (sandboxes are deleted after a few days) or behind. `--sync`:
+gone (a deleted sandbox, or the fresh one a new chat gets) or behind. `--sync`:
 
 1. Picks the source: the app's deploy branch if its PR is still open (or
-   it has none), else `--target-branch` — or `--sync-from=<branch>`.
+   it has none), else `--target-branch` — or `--sync-from=<branch>`. The
+   deploy branch comes from `--deploy-branch-name`, else the deploy state,
+   else the newest open PR on `deploy/<app-slug>[-<YYYYMMDD-HHMM>]` (see
+   "Review cycles" above), else `deploy/<app-slug>`.
 2. Lists every file on it (`get_file_contents` on directories, with
    `fields: [path, type, sha, size, download_url]`).
 3. Downloads each missing/different file from its `download_url` (bytes,

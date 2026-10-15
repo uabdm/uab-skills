@@ -139,8 +139,11 @@ branch first — never silently substitute one branch for the other.
 
 **d. Determine the deploy branch — one review cycle = one branch + one
 PR.** Start from `--deploy-branch-name`, else the branch this sandbox
-last deployed to (from its deploy state), else `deploy/<app-slug>`, and
-look up its pull requests (`list_pull_requests`):
+last deployed to (from its deploy state), else — for a sandbox with no
+state, such as a new chat — the newest **open** pull request whose head is
+`deploy/<app-slug>` or `deploy/<app-slug>-<YYYYMMDD-HHMM>` (the script
+prints `DEPLOY_BRANCH_FOUND:`), else `deploy/<app-slug>`, and look up its
+pull requests (`list_pull_requests`):
 - the branch exists and its PR is **open** (or it has no PR) → reuse it:
   this round adds a commit to the same PR;
 - the branch exists but its PR was **merged** → that review is finished:
@@ -196,7 +199,8 @@ stands — report it as `PR_NOT_OPENED` with the reason.
 ## Returning to an app: `--sync`
 
 When a user comes back to change an app, the sandbox may no longer have
-it (sandboxes are deleted after a few days) or GitHub may have changes the
+it (an archived sandbox keeps its files, but a deleted one, or the fresh
+sandbox of a new chat, doesn't) or GitHub may have changes the
 sandbox doesn't (a reviewer's edit, a merged PR). **GitHub is the source of
 truth; the sandbox is a working copy.** Run the script with `--sync` (same
 `--repo-url`, `--target-branch`, `--source-dir`) at the start of a
@@ -206,7 +210,12 @@ revision round when:
   `BRANCH_NOT_TRACKED`.
 
 It restores from the app's **open deploy branch** (its PR still open),
-otherwise from `--target-branch`. File contents can't come through the
+otherwise from `--target-branch`. The deploy branch is the one in the
+sandbox's deploy state; with no state it's the newest open pull request on
+`deploy/<app-slug>` or `deploy/<app-slug>-<YYYYMMDD-HHMM>`, so a returning
+user in a new chat lands on their open review without naming a branch
+(`DEPLOY_BRANCH_FOUND:` shows which one). Pass `--sync-from=<branch>` only
+to override that choice. File contents can't come through the
 gateway, so each file is downloaded from the `download_url` GitHub lists
 for it — a short-lived, single-file link (details in
 `references/mcp-mechanism.md`); the GitHub token never enters the

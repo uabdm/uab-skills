@@ -552,6 +552,40 @@ def _is_merged(pr: dict) -> bool:
     return bool(pr.get("merged") or pr.get("merged_at"))
 
 
+async def find_open_deploy_branch(gh: GitHubTools, owner: str, repo: str, app_slug: str, branches: dict):
+    """
+    For a sandbox with no deploy state and no --deploy-branch-name: the newest
+    OPEN pull request whose head is deploy/<slug> or deploy/<slug>-YYYYMMDD-HHMM
+    (and still exists as a branch). Returns (branch, pr number) or None.
+    Any lookup problem returns None, i.e. the caller's usual deploy/<slug> default.
+    """
+    try:
+        prs = await gh.call_with_retries(LIST_PULL_REQUESTS_TOOL, {
+            "owner": owner, "repo": repo, "state": "open", "perPage": 30,
+        })
+    except McpError as exc:
+        if exc.kind not in ("tool_not_found", "permission"):
+            raise
+        return None
+    if isinstance(prs, dict):
+        prs = prs.get("pull_requests") or prs.get("items") or []
+    if not isinstance(prs, list):
+        return None
+    pattern = re.compile(rf"deploy/{re.escape(app_slug)}(-\d{{8}}-\d{{4}})?")
+    mine = []
+    for pr in prs:
+        head = pr.get("head")
+        ref = head.get("ref") if isinstance(head, dict) else None
+        if ref and ref in branches and pattern.fullmatch(ref):
+            mine.append((pr.get("number") or 0, ref))
+    if not mine:
+        return None
+    if len(mine) > 1:
+        print(f"warning: {len(mine)} open deploy pull requests for '{app_slug}' -- using the newest")
+    number, ref = max(mine)
+    return ref, number
+
+
 def find_conflicts(remote: dict, last_pushed: dict, local: dict):
     """
     Files someone else changed on GitHub since this sandbox last pushed them,
@@ -681,7 +715,12 @@ async def choose_sync_source(gh, args, owner, repo, app_slug, branches, state):
         if args.sync_from not in branches:
             raise DeployStop("SYNC_SOURCE_MISSING", f"branch '{args.sync_from}' doesn't exist on {owner}/{repo}")
         return args.sync_from, args.deploy_branch_name or (state or {}).get("deploy_branch") or f"deploy/{app_slug}"
-    candidate = args.deploy_branch_name or (state or {}).get("deploy_branch") or f"deploy/{app_slug}"
+    candidate = args.deploy_branch_name or (state or {}).get("deploy_branch")
+    if not candidate:  # no flag and no record of a deploy: look for this app's open review branch
+        found = await find_open_deploy_branch(gh, owner, repo, app_slug, branches)
+        if found:
+            print(f"DEPLOY_BRANCH_FOUND: {found[0]} (open PR #{found[1]})")
+        candidate = found[0] if found else f"deploy/{app_slug}"
     if candidate in branches:
         try:
             prs = await pull_requests_for(gh, owner, repo, candidate)
@@ -862,7 +901,13 @@ async def run() -> int:
         # One review cycle = one branch + one PR: reuse the branch while its PR
         # is open; once merged, start a fresh branch from the target.
         base_name = args.deploy_branch_name or f"deploy/{app_slug}"
-        candidate = args.deploy_branch_name or (state or {}).get("deploy_branch") or base_name
+        candidate = args.deploy_branch_name or (state or {}).get("deploy_branch")
+        if not candidate and not args.no_pr:  # no flag, no record: look for this app's open review branch
+            found = await find_open_deploy_branch(gh, owner, repo, app_slug, branches)
+            if found:
+                print(f"DEPLOY_BRANCH_FOUND: {found[0]} (open PR #{found[1]})")
+                candidate = found[0]
+        candidate = candidate or base_name
         prs = None
         if not args.no_pr:
             try:
